@@ -1,5 +1,7 @@
 import { ProfitForecastController } from './controllers/ProfitForecastController';
 import { StockInfoController } from './controllers/StockInfoController';
+import { StockQuoteController } from './controllers/StockQuoteController';
+import { StockRankController } from './controllers/StockRankController';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
@@ -17,12 +19,20 @@ export interface Env {
     AISTOCK: KVNamespace;
 }
 
-/** 路由表: [路径前缀, 处理函数] */
-type RouteHandler = (symbol: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
+/** 带 symbol 参数的路由 */
+type SymbolRouteHandler = (symbol: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
 
-const routes: [string, RouteHandler][] = [
+/** 无参数的路由 */
+type SimpleRouteHandler = (env: Env, ctx: ExecutionContext) => Promise<Response>;
+
+const symbolRoutes: [string, SymbolRouteHandler][] = [
     ['/api/cn/stock/profit-forecast/', ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
     ['/api/cn/stock/info/', StockInfoController.getStockInfo.bind(StockInfoController)],
+    ['/api/cn/stock/quote/', StockQuoteController.getQuote.bind(StockQuoteController)],
+];
+
+const simpleRoutes: [string, SimpleRouteHandler][] = [
+    ['/api/cn/market/stockrank/', StockRankController.getHotRank.bind(StockRankController)],
 ];
 
 export default {
@@ -34,7 +44,15 @@ export default {
         try {
             const { pathname } = new URL(request.url);
 
-            for (const [prefix, handler] of routes) {
+            // 无参数路由
+            for (const [prefix, handler] of simpleRoutes) {
+                if (pathname === prefix || pathname === prefix.slice(0, -1)) {
+                    return await handler(env, ctx);
+                }
+            }
+
+            // 带 symbol 参数路由
+            for (const [prefix, handler] of symbolRoutes) {
                 if (pathname.startsWith(prefix)) {
                     const symbol = pathname.slice(prefix.length).replace(/\/+$/, '');
                     if (!symbol) {
@@ -47,7 +65,7 @@ export default {
                 }
             }
 
-            return createResponse(404, 'Not Found - 可用接口: /api/cn/stock/info/:symbol, /api/cn/stock/profit-forecast/:symbol');
+            return createResponse(404, 'Not Found - 可用接口: /api/cn/stock/info/:symbol, /api/cn/stock/quote/:symbol, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank/');
         } catch (err: any) {
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
         }
