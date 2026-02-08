@@ -1,6 +1,7 @@
 
 import { ProfitForecastController } from './controllers/ProfitForecastController';
 import { createResponse } from './utils/response';
+import { isValidAShareSymbol } from './utils/validator';
 
 console.log("Worker script loaded.");
 
@@ -42,9 +43,9 @@ export default {
                     const symbol = path.slice(prefix.length);
                     // 过滤掉可能的尾部斜杠或空字符串
                     if (symbol && symbol.length > 0) {
-                        // 安全校验：symbol 只能是数字或字母，长度 10 以内
-                        if (symbol.length > 10 || !/^[a-zA-Z0-9]+$/.test(symbol)) {
-                            return createResponse(400, "Invalid symbol - 只能包含数字或字母，且长度不可超过10位");
+                        // 安全校验：使用统一工具函数校验 A 股代码（6位数字）
+                        if (!isValidAShareSymbol(symbol)) {
+                            return createResponse(400, "Invalid symbol - A股代码必须是6位数字");
                         }
                          return await ProfitForecastController.getThsForecast(symbol, env, ctx);
                     }
