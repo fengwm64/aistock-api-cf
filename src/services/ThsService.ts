@@ -37,16 +37,21 @@ export class ThsService {
             '预测年报每股收益': [],
             '预测年报净利润': [],
             '业绩预测详表_机构': [],
+            '业绩预测详表_详细指标预测': [],
         };
 
         if (hasNoPrediction) {
             if (tables.length > 0) {
                 result['业绩预测详表_机构'] = parseTable($, tables[0], '业绩预测详表-机构');
             }
+            if (tables.length > 1) {
+                result['业绩预测详表_详细指标预测'] = parseTable($, tables[1], '业绩预测详表-详细指标预测');
+            }
         } else {
             if (tables.length > 0) result['预测年报每股收益'] = parseTable($, tables[0], '预测年报每股收益');
             if (tables.length > 1) result['预测年报净利润'] = parseTable($, tables[1], '预测年报净利润');
             if (tables.length > 2) result['业绩预测详表_机构'] = parseTable($, tables[2], '业绩预测详表-机构');
+            if (tables.length > 3) result['业绩预测详表_详细指标预测'] = parseTable($, tables[3], '业绩预测详表-详细指标预测');
         }
 
         return result;
