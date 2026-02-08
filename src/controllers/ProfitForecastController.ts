@@ -32,7 +32,6 @@ export class ProfitForecastController {
                 cacheService?.refresh(cacheKey, cachedWrapper, this.CACHE_TTL);
 
                 return createResponse(200, 'success (cached)', {
-                    symbol,
                     updateTime: formatToChinaTime(cachedWrapper.timestamp),
                     ...cachedWrapper.data,
                 });
