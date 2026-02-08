@@ -6,7 +6,7 @@ import { Env } from '../index';
 export class ProfitForecastController {
     static async getThsForecast(symbol: string, env: Env, ctx: ExecutionContext) {
         if (!symbol) {
-            return createResponse(400, "Missing symbol parameter. Usage: /profit-forecast/600519");
+            return createResponse(400, "Missing symbol parameter. Usage: /api/cn/stock/profit-forecast/600519");
         }
         
         const symbolStr = symbol;

@@ -35,8 +35,8 @@ export default {
             if (request.method === 'GET') {
                 const path = url.pathname;
                 
-                // 1. 匹配 /api/profit-forecast/:symbol
-                const prefix = '/api/profit-forecast/';
+                // 1. 匹配 /api/cn/stock/profit-forecast/:symbol
+                const prefix = '/api/cn/stock/profit-forecast/';
                 if (path.startsWith(prefix)) {
                     // 提取 symbol
                     const symbol = path.slice(prefix.length);
@@ -52,7 +52,7 @@ export default {
             }
 
             // 404 处理
-            return createResponse(404, "Not Found - 请使用 /api/profit-forecast/股票代码");
+            return createResponse(404, "Not Found - 请使用 /api/cn/stock/profit-forecast/股票代码");
             
         } catch (err: any) {
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
