@@ -42,6 +42,10 @@ export default {
                     const symbol = path.slice(prefix.length);
                     // 过滤掉可能的尾部斜杠或空字符串
                     if (symbol && symbol.length > 0) {
+                        // 安全校验：symbol 只能是数字或字母，长度 10 以内
+                        if (symbol.length > 10 || !/^[a-zA-Z0-9]+$/.test(symbol)) {
+                            return createResponse(400, "Invalid symbol - 只能包含数字或字母，且长度不可超过10位");
+                        }
                          return await ProfitForecastController.getThsForecast(symbol, env, ctx);
                     }
                 }
