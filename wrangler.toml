@@ -24,4 +24,4 @@ invocation_logs = true
 enabled = true
 
 [placement]
-hostname = "basic.10jqka.com.cn"
+mode = "smart"
