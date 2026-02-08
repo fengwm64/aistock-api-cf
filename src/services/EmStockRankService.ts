@@ -10,7 +10,7 @@ interface RankItem {
 
 export interface StockRankResult {
     当前排名: number;
-    代码: string;
+    股票代码: string;
 }
 
 export class EmStockRankService {
@@ -46,7 +46,7 @@ export class EmStockRankService {
 
         return data.map(item => ({
             '当前排名': Number(item.rk),
-            '代码': item.sc.replace(/^(SZ|SH|BJ)/i, ''),
+            '股票代码': item.sc.replace(/^(SZ|SH|BJ)/i, ''),
         }));
     }
 }

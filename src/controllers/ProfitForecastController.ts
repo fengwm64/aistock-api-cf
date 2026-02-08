@@ -32,7 +32,7 @@ export class ProfitForecastController {
                 cacheService?.refresh(cacheKey, cachedWrapper, this.CACHE_TTL);
 
                 return createResponse(200, 'success (cached)', {
-                    symbol,
+                    '股票代码': symbol,
                     updateTime: formatToChinaTime(cachedWrapper.timestamp),
                     ...cachedWrapper.data,
                 });
@@ -47,7 +47,7 @@ export class ProfitForecastController {
             }
 
             return createResponse(200, 'success', {
-                symbol,
+                '股票代码': symbol,
                 updateTime: formatToChinaTime(now),
                 ...data,
             });
