@@ -30,10 +30,15 @@ export class ThsService {
         const html = new TextDecoder('gbk').decode(arrayBuffer);
 
         const $ = cheerio.load(html);
+        
+        // 提取摘要信息
+        const summary = $('#forecast > div.bd > p.tip.clearfix').text().trim().replace(/\s+/g, ' ');
+
         const tables = $('table');
         const hasNoPrediction = html.includes('本年度暂无机构做出业绩预测');
 
-        const result: Record<string, any[]> = {
+        const result: Record<string, any> = {
+            '摘要': summary,
             '预测年报每股收益': [],
             '预测年报净利润': [],
             '业绩预测详表_机构': [],
