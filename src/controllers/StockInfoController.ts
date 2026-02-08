@@ -36,7 +36,6 @@ export class StockInfoController {
                 cacheService?.refresh(cacheKey, cachedWrapper, this.CACHE_TTL);
 
                 return createResponse(200, 'success (cached)', {
-                    symbol,
                     updateTime: formatToChinaTime(cachedWrapper.timestamp),
                     ...cachedWrapper.data,
                 });
@@ -51,7 +50,6 @@ export class StockInfoController {
             }
 
             return createResponse(200, 'success', {
-                symbol,
                 updateTime: formatToChinaTime(now),
                 ...data,
             });
