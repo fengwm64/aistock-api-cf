@@ -1,0 +1,23 @@
+{
+  "name": "stock-profit-forecast-ths",
+  "version": "1.0.0",
+  "description": "Stock profit forecast API using Cloudflare Workers",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "echo 'Building not required for interpretion, but verifying types...' && tsc",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.10"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240117.0",
+    "@types/node": "^25.2.1",
+    "typescript": "^5.3.3",
+    "wrangler": "^4.63.0"
+  }
+}

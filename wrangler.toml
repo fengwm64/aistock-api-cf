@@ -1,0 +1,13 @@
+name = "stock-profit-forecast-ths"
+main = "src/index.ts"
+compatibility_date = "2026-01-08"
+compatibility_flags = ["nodejs_compat"]
+routes = ["api.aistocklink.cn/stock/profit-forecast/*"]
+
+[vars]
+
+# KV Namespace binding
+[[kv_namespaces]]
+binding = "AISTOCK" 
+id = "2e22a1ea7d91471e8476969f8e89ccab"
+preview_id = "2e22a1ea7d91471e8476969f8e89ccab" # Optional for local dev
