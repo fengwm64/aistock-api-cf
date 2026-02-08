@@ -1,16 +1,27 @@
-export const createResponse = (code: number, message: string, data: any = null) => {
-    return new Response(JSON.stringify({
-        code,
-        message,
-        data
-    }, null, 2), {
-        status: code === 200 ? 200 : (code >= 400 && code < 600 ? code : 200), // Map code to HTTP status if valid, else 200 (or handle appropriately)
-        // Simplification: if code is standard HTTP error, use it, else 200.
-        // But for API consistencies often 200 is used with error code in body, OR matching status code.
-        // Let's match status code for 200, 400, 500.
+/**
+ * 统一 API 响应格式
+ */
+export interface ApiResponse<T = any> {
+    code: number;
+    message: string;
+    data: T | null;
+}
+
+/**
+ * 创建标准化 JSON 响应
+ * @param code 业务状态码（同时映射为 HTTP 状态码）
+ * @param message 消息描述
+ * @param data 响应数据
+ */
+export function createResponse<T = any>(code: number, message: string, data: T | null = null): Response {
+    const body: ApiResponse<T> = { code, message, data };
+    const httpStatus = (code >= 200 && code < 600) ? code : 200;
+
+    return new Response(JSON.stringify(body, null, 2), {
+        status: httpStatus,
         headers: {
-            'content-type': 'application/json;charset=UTF-8',
-            'Access-Control-Allow-Origin': '*', // Useful for APIs
+            'Content-Type': 'application/json;charset=UTF-8',
+            'Access-Control-Allow-Origin': '*',
         },
     });
-};
+}

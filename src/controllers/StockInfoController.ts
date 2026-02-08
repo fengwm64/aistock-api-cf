@@ -1,22 +1,26 @@
-import { ThsService } from '../services/ThsService';
+import { EmService } from '../services/EmService';
 import { CacheService } from '../services/CacheService';
 import { createResponse } from '../utils/response';
 import { formatToChinaTime } from '../utils/datetime';
 import { Env } from '../index';
+import { isValidAShareSymbol } from '../utils/validator';
 
 /**
- * 盈利预测控制器
+ * 股票基本信息控制器
  */
-export class ProfitForecastController {
-    /** 缓存 TTL: 7天 */
-    private static readonly CACHE_TTL = 7 * 24 * 60 * 60;
+export class StockInfoController {
+    /** 缓存 TTL: 14天 */
+    private static readonly CACHE_TTL = 14 * 24 * 60 * 60;
 
-    static async getThsForecast(symbol: string, env: Env, ctx: ExecutionContext) {
+    static async getStockInfo(symbol: string, env: Env, ctx: ExecutionContext) {
         if (!symbol) {
             return createResponse(400, '缺少 symbol 参数');
         }
+        if (!isValidAShareSymbol(symbol)) {
+            return createResponse(400, 'Invalid symbol - A股代码必须是6位数字');
+        }
 
-        const cacheKey = `profit_forecast:${symbol}`;
+        const cacheKey = `stock_info:${symbol}`;
 
         try {
             let cachedWrapper: any = null;
@@ -39,19 +43,21 @@ export class ProfitForecastController {
             }
 
             // 未命中缓存：请求源数据
-            const data = await ThsService.getProfitForecast(symbol);
+            const data = await EmService.getStockInfo(symbol);
             const now = Date.now();
 
-            if (cacheService) {
+            if (cacheService && Object.keys(data).length > 0) {
                 cacheService.set(cacheKey, { timestamp: now, data }, this.CACHE_TTL);
             }
 
             return createResponse(200, 'success', {
+                symbol,
                 updateTime: formatToChinaTime(now),
                 ...data,
             });
-        } catch (error: any) {
-            return createResponse(500, error.message);
+        } catch (err: any) {
+            console.error(`Error fetching stock info for ${symbol}:`, err);
+            return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
         }
     }
 }

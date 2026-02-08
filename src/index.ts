@@ -1,64 +1,55 @@
-
 import { ProfitForecastController } from './controllers/ProfitForecastController';
+import { StockInfoController } from './controllers/StockInfoController';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
-console.log("Worker script loaded.");
-
 /**
- * Cloudflare Worker 架构介绍:
- * 
- * 本项目采用 Clean Architecture 分层设计:
- * - src/index.ts: 入口文件，负责路由分发 (No Library, Manually Handled)。
- * - src/controllers: 控制器层，处理 HTTP 请求参数解析和响应格式化。
- * - src/services: 服务层，处理核心业务逻辑 (如请求同花顺数据、编码处理)。
- * - src/utils: 工具层，包含通用的解析逻辑 (HTML Parser) 和响应辅助函数。
- * 
- * 技术栈:
- * - Runtime: Cloudflare Workers
- * - Router: 手写轻量级路由 (无外部依赖)
- * - HTML Parsing: cheerio
- * - Encoding: Native TextDecoder (Gb2312/GBK support)
+ * Cloudflare Worker 入口
+ *
+ * 分层架构:
+ * - index.ts        路由分发
+ * - controllers/    请求参数校验 & 响应组装
+ * - services/       核心业务逻辑（数据源请求）
+ * - utils/          通用工具（响应、校验、解析、日期）
  */
 
 export interface Env {
-    // 环境变量接口定义
     AISTOCK: KVNamespace;
 }
 
+/** 路由表: [路径前缀, 处理函数] */
+type RouteHandler = (symbol: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
+
+const routes: [string, RouteHandler][] = [
+    ['/api/cn/stock/profit-forecast/', ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
+    ['/api/cn/stock/info/', StockInfoController.getStockInfo.bind(StockInfoController)],
+];
+
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+        if (request.method !== 'GET') {
+            return createResponse(405, 'Method Not Allowed');
+        }
+
         try {
-            const url = new URL(request.url);
-            
-            // 简单的手动路由实现
-            // 仅处理 GET 请求
-            if (request.method === 'GET') {
-                const path = url.pathname;
-                
-                // 1. 匹配 /api/cn/stock/profit-forecast/:symbol
-                const prefix = '/api/cn/stock/profit-forecast/';
-                if (path.startsWith(prefix)) {
-                    // 提取 symbol
-                    const symbol = path.slice(prefix.length);
-                    // 过滤掉可能的尾部斜杠或空字符串
-                    if (symbol && symbol.length > 0) {
-                        // 安全校验：使用统一工具函数校验 A 股代码（6位数字）
-                        if (!isValidAShareSymbol(symbol)) {
-                            return createResponse(400, "Invalid symbol - A股代码必须是6位数字");
-                        }
-                         return await ProfitForecastController.getThsForecast(symbol, env, ctx);
+            const { pathname } = new URL(request.url);
+
+            for (const [prefix, handler] of routes) {
+                if (pathname.startsWith(prefix)) {
+                    const symbol = pathname.slice(prefix.length).replace(/\/+$/, '');
+                    if (!symbol) {
+                        return createResponse(400, '缺少 symbol 参数');
                     }
+                    if (!isValidAShareSymbol(symbol)) {
+                        return createResponse(400, 'Invalid symbol - A股代码必须是6位数字');
+                    }
+                    return await handler(symbol, env, ctx);
                 }
             }
 
-            // 404 处理
-            return createResponse(404, "Not Found - 请使用 /api/cn/stock/profit-forecast/股票代码");
-            
+            return createResponse(404, 'Not Found - 可用接口: /api/cn/stock/info/:symbol, /api/cn/stock/profit-forecast/:symbol');
         } catch (err: any) {
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
         }
-	},
+    },
 };
-
-

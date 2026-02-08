@@ -1,7 +1,7 @@
 {
-  "name": "stock-profit-forecast-ths",
+  "name": "aistock-api-cf",
   "version": "1.0.0",
-  "description": "Stock profit forecast API using Cloudflare Workers",
+  "description": "A股数据 API - Cloudflare Workers",
   "main": "src/index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

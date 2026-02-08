@@ -1,4 +1,4 @@
-name = "stock-profit-forecast-ths"
+name = 'aistock-extapi'
 main = "src/index.ts"
 compatibility_date = "2026-01-08"
 compatibility_flags = ["nodejs_compat"]
