@@ -22,3 +22,6 @@ invocation_logs = true
 
 [observability.traces]
 enabled = true
+
+[placement]
+hostname = "basic.10jqka.com.cn"
