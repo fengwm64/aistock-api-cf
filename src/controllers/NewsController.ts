@@ -60,18 +60,25 @@ export class NewsController {
                 throw new Error(`财联社接口返回错误: ${data.msg || 'Unknown error'}`);
             }
 
-            const articles = data.data?.top_article || [];
+            let articles = data.data?.top_article || [];
+            
+            // 如果 top_article 不足 5 条，从 depth_list 补充
+            if (articles.length < 5) {
+                const depthList = data.data?.depth_list || [];
+                const needed = 5 - articles.length;
+                articles = [...articles, ...depthList.slice(0, needed)];
+            }
             
             // 只取前 5 条
             const topArticles = articles.slice(0, 5).map((article: any) => {
-                const link = this.extractNewsLink(article.schema || '');
+                const link = article.id ? `https://www.cls.cn/detail/${article.id}` : '';
                 
                 return {
                     'ID': article.id || '',
                     '时间': formatToChinaTime(article.ctime * 1000), // Unix 秒转毫秒
                     '标题': (article.title || '').trim(),
                     '摘要': (article.brief || '').trim(),
-                    '作者': (article.author || '').trim(),
+                    '作者': (article.author || article.source || '').trim(),
                     '链接': link,
                 };
             });
