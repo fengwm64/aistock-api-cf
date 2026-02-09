@@ -13,13 +13,6 @@ const getText = ($: CheerioStatic, el: CheerioElement): string => $(el).text().t
  * 解析业绩预测详表（机构）—— 复杂多行表头
  */
 function parseInstitutionTable($: CheerioStatic, tableElement: CheerioElement): Record<string, any>[] {
-    // 检查表头第一行是否包含特征列
-    const firstHeaderRow = $(tableElement).find('thead tr').first();
-    const firstHeaderText = firstHeaderRow.length > 0 ? firstHeaderRow.text() : '';
-    if (!firstHeaderText.includes('机构名称') && !firstHeaderText.includes('研究员')) {
-        return [];
-    }
-
     const data: Record<string, any>[] = [];
     const headerRows = $(tableElement).find('thead tr');
 
@@ -119,12 +112,6 @@ function parseFlatTable($: CheerioStatic, tableElement: CheerioElement): Record<
  * 需要去除嵌套表格，并处理表头括号
  */
 function parseDetailedForecastTable($: CheerioStatic, tableElement: CheerioElement): Record<string, any>[] {
-    // 验证表头特征，防止匹配到错误的表格
-    const tableText = $(tableElement).text();
-    if (!tableText.includes('预测指标')) {
-        return [];
-    }
-
     const data: Record<string, any>[] = [];
     const headers: string[] = [];
 

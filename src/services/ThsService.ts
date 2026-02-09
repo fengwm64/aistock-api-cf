@@ -31,8 +31,13 @@ export class ThsService {
 
         const hasNoPrediction = html.includes('本年度暂无机构做出业绩预测');
 
-        // 只加载一次 cheerio，使用精确 CSS 选择器直接定位元素
-        const $ = cheerio.load(html, { scriptingEnabled: false });
+        // 剥离 script / style / HTML 注释，大幅缩减 cheerio 需要解析的 DOM 树
+        const cleanHtml = html
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<!--[\s\S]*?-->/g, '');
+
+        const $ = cheerio.load(cleanHtml, { scriptingEnabled: false });
 
         const result: Record<string, any> = {
             '摘要': '',
