@@ -14,36 +14,6 @@ export class ThsService {
     };
 
     /**
-     * 从完整页面 HTML 中截取指定 id 的 div 区域
-     */
-    private static extractSection(html: string, id: string): string {
-        const startMarker = `id="${id}"`;
-        const startIdx = html.indexOf(startMarker);
-        if (startIdx === -1) return '';
-
-        const divStart = html.lastIndexOf('<div', startIdx);
-        if (divStart === -1) return '';
-
-        let depth = 0;
-        let i = divStart;
-        while (i < html.length) {
-            if (html[i] === '<') {
-                if (html.substring(i, i + 4) === '<div') {
-                    depth++;
-                } else if (html.substring(i, i + 6) === '</div>') {
-                    depth--;
-                    if (depth === 0) {
-                        return html.substring(divStart, i + 6);
-                    }
-                }
-            }
-            i++;
-        }
-
-        return html.substring(divStart, Math.min(divStart + 50000, html.length));
-    }
-
-    /**
      * 获取股票盈利预测数据
      * @param symbol 6位股票代码
      */
@@ -61,6 +31,9 @@ export class ThsService {
 
         const hasNoPrediction = html.includes('本年度暂无机构做出业绩预测');
 
+        // 只加载一次 cheerio，使用精确 CSS 选择器直接定位元素
+        const $ = cheerio.load(html, { scriptingEnabled: false });
+
         const result: Record<string, any> = {
             '摘要': '',
             '预测年报每股收益': [],
@@ -69,33 +42,25 @@ export class ThsService {
             '业绩预测详表_详细指标预测': [],
         };
 
-        // #forecast 区域：摘要 + 预测年报每股收益 + 预测年报净利润
-        const forecastHtml = this.extractSection(html, 'forecast');
-        if (forecastHtml) {
-            const $f = cheerio.load(forecastHtml, { scriptingEnabled: false });
-            result['摘要'] = $f('p.tip.clearfix').text().trim().replace(/\s+/g, ' ');
+        // 摘要
+        result['摘要'] = $('#forecast > div.bd > p.tip.clearfix').text().trim().replace(/\s+/g, ' ');
 
-            if (!hasNoPrediction) {
-                const fTables = $f('table');
-                if (fTables.length > 0) result['预测年报每股收益'] = parseTable($f, fTables[0], '预测年报每股收益');
-                if (fTables.length > 1) result['预测年报净利润'] = parseTable($f, fTables[1], '预测年报净利润');
-            }
+        // 预测年报每股收益 + 预测年报净利润
+        if (!hasNoPrediction) {
+            const epsTable = $('#forecast > div.bd > div.clearfix > div.fl.yjyc > table');
+            if (epsTable.length > 0) result['预测年报每股收益'] = parseTable($, epsTable[0], '预测年报每股收益');
+
+            const profitTable = $('#forecast > div.bd > div.clearfix > div.fr.yjyc > table');
+            if (profitTable.length > 0) result['预测年报净利润'] = parseTable($, profitTable[0], '预测年报净利润');
         }
 
-        // #forecastdetail 区域：业绩预测详表_机构 + 业绩预测详表_详细指标预测
-        const detailHtml = this.extractSection(html, 'forecastdetail');
-        if (detailHtml) {
-            const $d = cheerio.load(detailHtml, { scriptingEnabled: false });
-            const dTables = $d('table');
+        // 业绩预测详表_机构
+        const instTable = $('#forecastdetail > div.bd > table.m_table.m_hl.posi_table');
+        if (instTable.length > 0) result['业绩预测详表_机构'] = parseTable($, instTable[0], '业绩预测详表-机构');
 
-            if (hasNoPrediction) {
-                if (dTables.length > 0) result['业绩预测详表_机构'] = parseTable($d, dTables[0], '业绩预测详表-机构');
-                if (dTables.length > 1) result['业绩预测详表_详细指标预测'] = parseTable($d, dTables[1], '业绩预测详表-详细指标预测');
-            } else {
-                if (dTables.length > 0) result['业绩预测详表_机构'] = parseTable($d, dTables[0], '业绩预测详表-机构');
-                if (dTables.length > 1) result['业绩预测详表_详细指标预测'] = parseTable($d, dTables[1], '业绩预测详表-详细指标预测');
-            }
-        }
+        // 业绩预测详表_详细指标预测
+        const detailTable = $('#forecastdetail > div.bd > table.m_table.m_hl.ggintro.ggintro_1.organData');
+        if (detailTable.length > 0) result['业绩预测详表_详细指标预测'] = parseTable($, detailTable[0], '业绩预测详表-详细指标预测');
 
         return result;
     }

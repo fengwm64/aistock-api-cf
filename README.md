@@ -390,6 +390,16 @@ GET /api/cn/market/stockrank/
 
 ---
 
+## 更新日志
+
+### 2026年2月9日
+- **性能优化**:
+  - 移除 `ThsService` 中的 `extractSection` 方法，减少字符串扫描的 CPU 开销。
+  - 使用精确的 CSS 选择器替代多次 `cheerio.load`，显著提升 HTML 解析效率。
+  - 优化了盈利预测接口的解析逻辑，减少 Worker 超时失败的可能性。
+
+---
+
 ## 开发
 
 ```bash
