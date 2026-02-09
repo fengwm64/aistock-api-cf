@@ -15,13 +15,13 @@ preview_id = "2e22a1ea7d91471e8476969f8e89ccab" # Optional for local dev
 pattern = "extapi.aistocklink.cn"
 custom_domain = true
 
-[observability]
-[observability.logs]
-enabled = true
-invocation_logs = true
+# [observability]
+# [observability.logs]
+# enabled = true
+# invocation_logs = true
 
-[observability.traces]
-enabled = true
+# [observability.traces]
+# enabled = true
 
 [placement]
 mode = "smart"

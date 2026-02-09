@@ -3,6 +3,7 @@ import { StockInfoController } from './controllers/StockInfoController';
 import { StockQuoteController } from './controllers/StockQuoteController';
 import { StockRankController } from './controllers/StockRankController';
 import { IndexQuoteController } from './controllers/IndexQuoteController';
+import { NewsController } from './controllers/NewsController';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
@@ -36,6 +37,7 @@ const symbolRoutes: [string, SymbolRouteHandler][] = [
 
 const simpleRoutes: [string, SimpleRouteHandler][] = [
     ['/api/cn/market/stockrank/', StockRankController.getHotRank.bind(StockRankController)],
+    ['/api/news/headlines', NewsController.getHeadlines.bind(NewsController)],
 ];
 
 const queryRoutes: [string, QueryRouteHandler][] = [

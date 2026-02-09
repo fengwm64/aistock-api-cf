@@ -1,6 +1,6 @@
 # AIStock API
 
-A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、盈利预测、热门人气榜等接口。
+A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、盈利预测、热门人气榜、新闻头条等接口。
 
 ## 架构
 
@@ -12,7 +12,8 @@ src/
 │   ├── StockQuoteController.ts     # 股票实时行情
 │   ├── IndexQuoteController.ts     # 指数实时行情
 │   ├── StockRankController.ts      # 热门人气榜
-│   └── ProfitForecastController.ts # 盈利预测
+│   ├── ProfitForecastController.ts # 盈利预测
+│   └── NewsController.ts           # 新闻头条
 ├── services/                       # 服务层：核心业务逻辑 & 外部数据源请求
 │   ├── EmService.ts                # 东方财富 - 股票基本信息
 │   ├── EmQuoteService.ts           # 东方财富 - 股票实时行情
@@ -450,6 +451,59 @@ GET /api/cn/market/stockrank/
 
 ---
 
+### 6. 新闻头条
+
+获取财联社最新头条新闻（前 5 条）。
+
+- **URL**: `/api/news/headlines`
+- **缓存**: 无（实时数据）
+- **数据源**: 财联社
+
+**请求示例**:
+
+```
+GET /api/news/headlines
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "来源": "财联社",
+    "更新时间": "2026-02-09 14:30:00",
+    "新闻数量": 5,
+    "头条新闻": [
+      {
+        "时间": "2026-02-09 14:25:00",
+        "标题": "A股三大指数集体收涨 沪指涨0.75%",
+        "摘要": "今日A股三大指数集体收涨，沪指涨0.75%，深成指涨1.23%，创业板指涨1.56%。",
+        "作者": "财联社",
+        "链接": "https://www.cls.cn/detail/1234567"
+      },
+      {
+        "时间": "2026-02-09 14:20:00",
+        "标题": "央行今日开展500亿元逆回购操作",
+        "摘要": "央行公告称，为维护银行体系流动性合理充裕，今日开展500亿元7天期逆回购操作。",
+        "作者": "新华社",
+        "链接": "https://www.cls.cn/detail/1234568"
+      }
+    ]
+  }
+}
+```
+
+**返回字段**:
+- `时间`: 新闻发布时间（格式: YYYY-MM-DD HH:mm:ss）
+- `标题`: 新闻标题
+- `摘要`: 新闻摘要
+- `作者`: 新闻来源/作者
+- `链接`: 新闻详情页链接
+
+---
+
 ## 错误响应
 
 | code | 说明 |
@@ -476,6 +530,7 @@ GET /api/cn/market/stockrank/
 ### 2026年2月9日
 - **新增功能**:
   - 新增指数实时行情接口 `/api/cn/index/quotes?symbols=`，支持批量查询，最多 50 只指数。
+  - 新增新闻头条接口 `/api/news/headlines`，返回财联社最新头条新闻（前 5 条）。
 - **性能优化**:
   - 移除 `ThsService` 中的 `extractSection` 方法，减少字符串扫描的 CPU 开销。
   - HTML 预处理阶段剥离 `<script>`、`<style>`、注释等内容，缩减 cheerio 解析的 DOM 树规模。
