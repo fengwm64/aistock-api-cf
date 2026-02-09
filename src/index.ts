@@ -45,6 +45,10 @@ const idRoutes: [string, IdRouteHandler][] = [
 const simpleRoutes: [string, SimpleRouteHandler][] = [
     ['/api/cn/market/stockrank/', StockRankController.getHotRank.bind(StockRankController)],
     ['/api/news/headlines', NewsController.getHeadlines.bind(NewsController)],
+    ['/api/news/cn', NewsController.getCnNews.bind(NewsController)],
+    ['/api/news/hk', NewsController.getHkNews.bind(NewsController)],
+    ['/api/news/global', NewsController.getGlobalNews.bind(NewsController)],
+    ['/api/news/fund', NewsController.getFundNews.bind(NewsController)],
 ];
 
 const queryRoutes: [string, QueryRouteHandler][] = [

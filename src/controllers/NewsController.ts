@@ -7,8 +7,8 @@ import * as cheerio from 'cheerio';
  * 财联社新闻控制器
  */
 export class NewsController {
-    /** 财联社深度首页 API */
-    private static readonly BASE_URL = 'https://www.cls.cn/v3/depth/home/assembled/1000';
+    /** 财联社深度首页 API 基础 URL */
+    private static readonly BASE_URL = 'https://www.cls.cn/v3/depth/home/assembled';
     
     /** 固定签名 */
     private static readonly SIGN = '9f8797a1f4de66c2370f7a03990d2737';
@@ -30,10 +30,12 @@ export class NewsController {
     }
 
     /**
-     * 获取头条新闻（最新 5 条）
+     * 通用获取新闻方法
+     * @param categoryId 分类 ID
+     * @param categoryName 分类名称
      */
-    static async getHeadlines(env: Env, ctx: ExecutionContext) {
-        const url = new URL(this.BASE_URL);
+    private static async fetchNews(categoryId: number, categoryName: string): Promise<Response> {
+        const url = new URL(`${this.BASE_URL}/${categoryId}`);
         url.searchParams.set('app', 'CailianpressWeb');
         url.searchParams.set('os', 'web');
         url.searchParams.set('sv', '8.4.6');
@@ -76,6 +78,7 @@ export class NewsController {
 
             return createResponse(200, 'success', {
                 '来源': '财联社',
+                '分类': categoryName,
                 '更新时间': formatToChinaTime(Date.now()),
                 '新闻数量': topArticles.length,
                 '头条新闻': topArticles,
@@ -83,6 +86,41 @@ export class NewsController {
         } catch (error: any) {
             return createResponse(500, error.message);
         }
+    }
+
+    /**
+     * 获取头条新闻（最新 5 条）
+     */
+    static async getHeadlines(env: Env, ctx: ExecutionContext) {
+        return this.fetchNews(1000, '头条新闻');
+    }
+
+    /**
+     * 获取 A 股市场新闻
+     */
+    static async getCnNews(env: Env, ctx: ExecutionContext) {
+        return this.fetchNews(1003, 'A股市场');
+    }
+
+    /**
+     * 获取港股市场新闻
+     */
+    static async getHkNews(env: Env, ctx: ExecutionContext) {
+        return this.fetchNews(1135, '港股市场');
+    }
+
+    /**
+     * 获取环球新闻
+     */
+    static async getGlobalNews(env: Env, ctx: ExecutionContext) {
+        return this.fetchNews(1007, '环球');
+    }
+
+    /**
+     * 获取基金/ETF 新闻
+     */
+    static async getFundNews(env: Env, ctx: ExecutionContext) {
+        return this.fetchNews(1110, '基金/ETF');
     }
 
     /**
