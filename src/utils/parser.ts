@@ -13,9 +13,10 @@ const getText = ($: CheerioStatic, el: CheerioElement): string => $(el).text().t
  * 解析业绩预测详表（机构）—— 复杂多行表头
  */
 function parseInstitutionTable($: CheerioStatic, tableElement: CheerioElement): Record<string, any>[] {
-    // 验证表头特征，防止匹配到错误的表格（如评级说明）
-    const tableText = $(tableElement).text();
-    if (!tableText.includes('机构名称') && !tableText.includes('研究员')) {
+    // 检查表头第一行是否包含特征列
+    const firstHeaderRow = $(tableElement).find('thead tr').first();
+    const firstHeaderText = firstHeaderRow.length > 0 ? firstHeaderRow.text() : '';
+    if (!firstHeaderText.includes('机构名称') && !firstHeaderText.includes('研究员')) {
         return [];
     }
 
@@ -127,18 +128,23 @@ function parseDetailedForecastTable($: CheerioStatic, tableElement: CheerioEleme
     const data: Record<string, any>[] = [];
     const headers: string[] = [];
 
-    // 获取清洗后的文本（移除嵌套表格及干扰字符）
+    // 获取清洗后的文本（跳过嵌套表格内容）
     const getCleanText = (el: CheerioElement): string => {
-        let text = '';
-        if ($(el).find('table').length > 0) {
-            const clone = $(el).clone();
-            clone.find('table').remove();
-            text = clone.text();
-        } else {
-            text = $(el).text();
+        // 预测列的值在 div.pr > span 中，优先提取
+        const prSpan = $(el).find('div.pr > span');
+        if (prSpan.length > 0) {
+            return prSpan.first().text().trim();
         }
-        // 移除 "预测机构一览" 及所有空白字符
-        return text.replace(/预测机构一览/g, '').replace(/\s+/g, '');
+        // 普通列：直接取文本
+        let text = '';
+        $(el).contents().each((_: number, child: CheerioElement) => {
+            if (child.type === 'text') {
+                text += child.data || '';
+            } else if (child.type === 'tag' && child.name !== 'table' && child.name !== 'div') {
+                text += $(child).text();
+            }
+        });
+        return text.replace(/\s+/g, '');
     };
 
     let headerRow = $(tableElement).children('thead').children('tr').last();

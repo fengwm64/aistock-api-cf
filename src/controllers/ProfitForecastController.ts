@@ -17,6 +17,7 @@ export class ProfitForecastController {
         }
 
         const cacheKey = `profit_forecast:${symbol}`;
+        const source = `同花顺 https://basic.10jqka.com.cn/new/${symbol}/worth.html`;
 
         try {
             let cachedWrapper: any = null;
@@ -33,7 +34,8 @@ export class ProfitForecastController {
 
                 return createResponse(200, 'success (cached)', {
                     '股票代码': symbol,
-                    updateTime: formatToChinaTime(cachedWrapper.timestamp),
+                    '来源': source,
+                    '更新时间': formatToChinaTime(cachedWrapper.timestamp),
                     ...cachedWrapper.data,
                 });
             }
@@ -48,7 +50,8 @@ export class ProfitForecastController {
 
             return createResponse(200, 'success', {
                 '股票代码': symbol,
-                updateTime: formatToChinaTime(now),
+                '来源': source,
+                '更新时间': formatToChinaTime(now),
                 ...data,
             });
         } catch (error: any) {

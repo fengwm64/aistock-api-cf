@@ -4,6 +4,7 @@ import { createResponse } from '../utils/response';
 import { formatToChinaTime } from '../utils/datetime';
 import { Env } from '../index';
 import { isValidAShareSymbol } from '../utils/validator';
+import { getStockIdentity } from '../utils/stock';
 
 /**
  * 股票基本信息控制器
@@ -21,6 +22,10 @@ export class StockInfoController {
         }
 
         const cacheKey = `stock_info:${symbol}`;
+        // 根据股票代码判断交易所前缀
+        const identity = getStockIdentity(symbol);
+        const prefix = identity.market === 'unknown' || identity.market === 'bj' ? 'sz' : identity.market;
+        const source = `东方财富 http://quote.eastmoney.com/concept/${prefix}${symbol}.html?from=classic`;
 
         try {
             let cachedWrapper: any = null;
@@ -36,7 +41,8 @@ export class StockInfoController {
                 cacheService?.refresh(cacheKey, cachedWrapper, this.CACHE_TTL);
 
                 return createResponse(200, 'success (cached)', {
-                    updateTime: formatToChinaTime(cachedWrapper.timestamp),
+                    '来源': source,
+                    '更新时间': formatToChinaTime(cachedWrapper.timestamp),
                     ...cachedWrapper.data,
                 });
             }
@@ -50,7 +56,8 @@ export class StockInfoController {
             }
 
             return createResponse(200, 'success', {
-                updateTime: formatToChinaTime(now),
+                '来源': source,
+                '更新时间': formatToChinaTime(now),
                 ...data,
             });
         } catch (err: any) {

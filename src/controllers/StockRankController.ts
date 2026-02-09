@@ -14,6 +14,7 @@ export class StockRankController {
 
     static async getHotRank(env: Env, ctx: ExecutionContext) {
         try {
+            const source = '东方财富 http://guba.eastmoney.com/rank/';
             let cachedWrapper: any = null;
             let cacheService: CacheService | null = null;
 
@@ -27,7 +28,8 @@ export class StockRankController {
                 cacheService?.refresh(this.CACHE_KEY, cachedWrapper, this.CACHE_TTL);
 
                 return createResponse(200, 'success (cached)', {
-                    updateTime: formatToChinaTime(cachedWrapper.timestamp),
+                    '来源': source,
+                    '更新时间': formatToChinaTime(cachedWrapper.timestamp),
                     ...cachedWrapper.data,
                 });
             }
@@ -42,7 +44,8 @@ export class StockRankController {
             }
 
             return createResponse(200, 'success', {
-                updateTime: formatToChinaTime(now),
+                '来源': source,
+                '更新时间': formatToChinaTime(now),
                 ...data,
             });
         } catch (err: any) {

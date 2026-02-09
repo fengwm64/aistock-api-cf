@@ -21,7 +21,7 @@ export class StockQuoteController {
             const data = await EmQuoteService.getQuote(symbol);
 
             return createResponse(200, 'success', {
-                updateTime: formatToChinaTime(Date.now()),
+                '更新时间': formatToChinaTime(Date.now()),
                 ...data,
             });
         } catch (err: any) {
