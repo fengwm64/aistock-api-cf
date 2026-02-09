@@ -77,6 +77,7 @@ GET /api/cn/stock/info/000001
   "code": 200,
   "message": "success",
   "data": {
+    "来源": "东方财富 http://quote.eastmoney.com/concept/sz000001.html?from=classic",
     "更新时间": "2026-02-08 12:08:16",
     "市场": "sz",
     "板块": "深市主板",
@@ -114,6 +115,7 @@ GET /api/cn/stock/quote/000001
   "code": 200,
   "message": "success",
   "data": {
+    "来源": "东方财富 https://quote.eastmoney.com/concept/sz000001.html?from=classic",
     "更新时间": "2026-02-08 14:35:20",
     "股票代码": "000001",
     "股票简称": "平安银行",
@@ -146,6 +148,7 @@ GET /api/cn/stock/profit-forecast/600519
   "code": 200,
   "message": "success",
   "data": {
+    "来源": "同花顺 https://basic.10jqka.com.cn/new/600519/worth.html",
     "股票代码": "600519",
     "更新时间": "2026-02-08 10:30:00",
     "预测年报每股收益": [
@@ -189,6 +192,7 @@ GET /api/cn/market/stockrank/
   "code": 200,
   "message": "success",
   "data": {
+    "来源": "东方财富 http://guba.eastmoney.com/rank/",
     "更新时间": "2026-02-08 14:00:00",
     "人气榜": [
       { "当前排名": 1, "股票代码": "000001" },
