@@ -1,6 +1,7 @@
 import { createResponse } from '../utils/response';
 import { formatToChinaTime } from '../utils/datetime';
 import { Env } from '../index';
+import * as cheerio from 'cheerio';
 
 /**
  * 财联社新闻控制器
@@ -64,6 +65,7 @@ export class NewsController {
                 const link = this.extractNewsLink(article.schema || '');
                 
                 return {
+                    'ID': article.id || '',
                     '时间': formatToChinaTime(article.ctime * 1000), // Unix 秒转毫秒
                     '标题': (article.title || '').trim(),
                     '摘要': (article.brief || '').trim(),
@@ -77,6 +79,77 @@ export class NewsController {
                 '更新时间': formatToChinaTime(Date.now()),
                 '新闻数量': topArticles.length,
                 '头条新闻': topArticles,
+            });
+        } catch (error: any) {
+            return createResponse(500, error.message);
+        }
+    }
+
+    /**
+     * 获取新闻详情（含全文）
+     * @param id 新闻 ID
+     */
+    static async getNewsDetail(id: string, env: Env, ctx: ExecutionContext) {
+        if (!id || !/^\d+$/.test(id)) {
+            return createResponse(400, '无效的新闻 ID');
+        }
+
+        const url = `https://www.cls.cn/detail/${id}`;
+
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`财联社新闻页面请求失败: ${response.status}`);
+            }
+
+            const html = await response.text();
+            
+            // 剥离 script/style 提升性能
+            const cleanHtml = html
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<!--[\s\S]*?-->/g, '');
+
+            const $ = cheerio.load(cleanHtml, { scriptingEnabled: false });
+
+            // 查找包含 detail-brief 的元素（摘要）
+            let brief = '';
+            $('[class*="detail-brief"]').each((_, elem) => {
+                const text = $(elem).text().trim();
+                // 去除【】包裹的内容
+                brief = text.replace(/【[^】]*】/g, '').trim();
+                return false; // 找到第一个即停止
+            });
+
+            // 查找包含 detail-content 的元素（详细内容）
+            let content = '';
+            $('[class*="detail-content"]').each((_, elem) => {
+                const paragraphs: string[] = [];
+                $(elem).find('p').each((_, p) => {
+                    const pText = $(p).text().trim().replace(/【[^】]*】/g, '').trim();
+                    if (pText) {
+                        paragraphs.push(pText);
+                    }
+                });
+                content = paragraphs.join('\n');
+                return false; // 找到第一个即停止
+            });
+
+            if (!brief && !content) {
+                return createResponse(404, '未找到新闻内容');
+            }
+
+            return createResponse(200, 'success', {
+                'ID': id,
+                '链接': url,
+                '摘要': brief,
+                '正文': content,
             });
         } catch (error: any) {
             return createResponse(500, error.message);

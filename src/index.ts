@@ -24,6 +24,9 @@ export interface Env {
 /** 带 symbol 参数的路由 */
 type SymbolRouteHandler = (symbol: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
 
+/** 带数字 ID 参数的路由 */
+type IdRouteHandler = (id: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
+
 /** 无参数的路由 */
 type SimpleRouteHandler = (env: Env, ctx: ExecutionContext) => Promise<Response>;
 
@@ -33,6 +36,10 @@ type QueryRouteHandler = (request: Request, env: Env, ctx: ExecutionContext) => 
 const symbolRoutes: [string, SymbolRouteHandler][] = [
     ['/api/cn/stock/profit-forecast/', ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
     ['/api/cn/stock/info/', StockInfoController.getStockInfo.bind(StockInfoController)],
+];
+
+const idRoutes: [string, IdRouteHandler][] = [
+    ['/api/news/', NewsController.getNewsDetail.bind(NewsController)],
 ];
 
 const simpleRoutes: [string, SimpleRouteHandler][] = [
@@ -82,6 +89,20 @@ export default {
                         return createResponse(400, 'Invalid symbol - A股代码必须是6位数字');
                     }
                     return await handler(symbol, env, ctx);
+                }
+            }
+
+            // 带数字 ID 参数路由
+            for (const [prefix, handler] of idRoutes) {
+                if (pathname.startsWith(prefix)) {
+                    const id = pathname.slice(prefix.length).replace(/\/+$/, '');
+                    if (!id) {
+                        return createResponse(400, '缺少 ID 参数');
+                    }
+                    if (!/^\d+$/.test(id)) {
+                        return createResponse(400, 'Invalid ID - ID 必须是数字');
+                    }
+                    return await handler(id, env, ctx);
                 }
             }
 
