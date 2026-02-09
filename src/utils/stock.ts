@@ -20,7 +20,6 @@ export interface StockIdentity {
  * - 200: 深市B股
  * 
  * 【北京交易所】(eastmoneyId: 0)
- * - 4xx, 8xx: 北交所 (含 82, 83, 87, 88)
  * - 920: 北交所
  * 
  * @param symbol 6位股票代码
@@ -51,8 +50,8 @@ export function getStockIdentity(symbol: string): StockIdentity {
         return { market: 'sz', board: '深市B股', eastmoneyId: 0 };
     }
 
-    // 北京证券交易所 (4开头, 8开头, 920开头)
-    if (symbol.startsWith('4') || symbol.startsWith('8') || symbol.startsWith('920')) {
+    // 北京证券交易所 (920开头)
+    if (symbol.startsWith('920')) {
         return { market: 'bj', board: '北交所', eastmoneyId: 0 };
     }
 
