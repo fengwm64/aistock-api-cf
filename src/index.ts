@@ -25,14 +25,22 @@ type SymbolRouteHandler = (symbol: string, env: Env, ctx: ExecutionContext) => P
 /** 无参数的路由 */
 type SimpleRouteHandler = (env: Env, ctx: ExecutionContext) => Promise<Response>;
 
+/** 带查询参数的路由 */
+type QueryRouteHandler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
+
 const symbolRoutes: [string, SymbolRouteHandler][] = [
     ['/api/cn/stock/profit-forecast/', ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
     ['/api/cn/stock/info/', StockInfoController.getStockInfo.bind(StockInfoController)],
-    ['/api/cn/stock/quote/', StockQuoteController.getQuote.bind(StockQuoteController)],
 ];
 
 const simpleRoutes: [string, SimpleRouteHandler][] = [
     ['/api/cn/market/stockrank/', StockRankController.getHotRank.bind(StockRankController)],
+];
+
+const queryRoutes: [string, QueryRouteHandler][] = [
+    ['/api/cn/stock/quotes/core', StockQuoteController.getCoreQuotes.bind(StockQuoteController)],
+    ['/api/cn/stock/quotes/activity', StockQuoteController.getActivityQuotes.bind(StockQuoteController)],
+    ['/api/cn/stock/quotes/fundamental', StockQuoteController.getFundamentalQuotes.bind(StockQuoteController)],
 ];
 
 export default {
@@ -42,12 +50,20 @@ export default {
         }
 
         try {
-            const { pathname } = new URL(request.url);
+            const url = new URL(request.url);
+            const { pathname } = url;
 
             // 无参数路由
             for (const [prefix, handler] of simpleRoutes) {
                 if (pathname === prefix || pathname === prefix.slice(0, -1)) {
                     return await handler(env, ctx);
+                }
+            }
+
+            // 带查询参数路由
+            for (const [path, handler] of queryRoutes) {
+                if (pathname === path || pathname === path + '/') {
+                    return await handler(request, env, ctx);
                 }
             }
 
@@ -65,7 +81,7 @@ export default {
                 }
             }
 
-            return createResponse(404, 'Not Found - 可用接口: /api/cn/stock/info/:symbol, /api/cn/stock/quote/:symbol, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank/');
+            return createResponse(404, 'Not Found - 可用接口: /api/cn/stock/info/:symbol, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/quotes/fundamental, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank/');
         } catch (err: any) {
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
         }

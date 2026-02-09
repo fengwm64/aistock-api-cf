@@ -6,7 +6,7 @@ import { getStockIdentity } from '../utils/stock';
  */
 export class EmService {
     /** 请求字段列表 */
-    private static readonly FIELDS = 'f57,f58,f127,f116,f117,f189,f84,f85';
+    private static readonly FIELDS = 'f57,f58,f127,f116,f117,f189,f84,f85,f128';
 
     /** 字段编号 -> 中文名称映射 */
     private static readonly CODE_NAME_MAP: Record<string, string> = {
@@ -14,10 +14,11 @@ export class EmService {
         'f58': '股票简称',
         'f84': '总股本',
         'f85': '流通股',
-        'f127': '行业',
+        'f127': '所属行业',
         'f116': '总市值',
         'f117': '流通市值',
         'f189': '上市时间',
+        "f128": "所属板块",
     };
 
     /** API 基础 URL */
