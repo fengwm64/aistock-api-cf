@@ -290,7 +290,6 @@ GET /api/cn/stock/quotes/fundamental?symbols=000001
 - `流通市值`: 流通市值（元）
 - `每股未分配利润`: 每股未分配利润
 - `更新时间`: 数据更新时间
-```
 
 ---
 
