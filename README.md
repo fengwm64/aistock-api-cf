@@ -106,7 +106,7 @@ GET /api/cn/stock/info/000001
 | 二级 | `/api/cn/stock/quotes/activity?symbols=` | 盘口/活跃度（含成交量、换手率、内外盘等） |
 | 三级 | `/api/cn/stock/quotes/fundamental?symbols=` | 估值/基本面（含市盈率、ROE、总市值等） |
 
-- **参数**: `symbols` — 逗号分隔的股票代码，单次最多 50 只
+- **参数**: `symbols` — 逗号分隔的股票代码，单次最多 20 只
 - **缓存**: 无（实时数据）
 - **单位说明**: 成交量/内盘/外盘原始单位为手，已统一转换为**股**（1手=100股）；更新时间已从 Unix 时间戳转换为可读格式
 
@@ -342,7 +342,7 @@ GET /api/cn/stock/profit-forecast/600519
 获取指数（如沪深 300、上证 50 等）实时行情数据，支持批量查询。
 
 - **URL**: `/api/cn/index/quotes?symbols=`
-- **参数**: `symbols` — 逗号分隔的指数代码，单次最多 50 只
+- **参数**: `symbols` — 逗号分隔的指数代码，单次最多 20 只
 - **缓存**: 无（实时数据）
 - **数据源**: 东方财富
 

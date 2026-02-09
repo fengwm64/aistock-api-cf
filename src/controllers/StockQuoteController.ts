@@ -4,7 +4,7 @@ import { Env } from '../index';
 import { isValidAShareSymbol } from '../utils/validator';
 
 /** 单次最多查询股票数量 */
-const MAX_SYMBOLS = 50;
+const MAX_SYMBOLS = 20;
 
 /**
  * 股票实时行情控制器

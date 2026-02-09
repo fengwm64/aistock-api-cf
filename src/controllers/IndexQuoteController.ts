@@ -5,7 +5,7 @@ import { isValidAShareSymbol } from '../utils/validator';
 import { Env } from '../index';
 
 /** 单次最多查询数量 */
-const MAX_SYMBOLS = 50;
+const MAX_SYMBOLS = 20;
 
 /** 需要 /100 的价格类字段 */
 const PRICE_DIV_FIELDS = new Set(['f43', 'f44', 'f45', 'f46', 'f60', 'f170', 'f169', 'f168']);
