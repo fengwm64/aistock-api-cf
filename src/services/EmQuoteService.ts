@@ -132,7 +132,6 @@ export class EmQuoteService {
         const fields = this.LEVEL_FIELDS[level];
 
         const url = `${this.BASE_URL}?invt=2&fltt=2&fields=${fields}&secid=${eastmoneyId}.${symbol}`;
-        console.log(`Fetching ${level} quote for ${symbol} from URL: ${url}`);
         const response = await fetch(url, {
             method: 'GET',
             headers: {

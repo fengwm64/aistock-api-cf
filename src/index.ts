@@ -2,6 +2,7 @@ import { ProfitForecastController } from './controllers/ProfitForecastController
 import { StockInfoController } from './controllers/StockInfoController';
 import { StockQuoteController } from './controllers/StockQuoteController';
 import { StockRankController } from './controllers/StockRankController';
+import { IndexQuoteController } from './controllers/IndexQuoteController';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
@@ -41,6 +42,7 @@ const queryRoutes: [string, QueryRouteHandler][] = [
     ['/api/cn/stock/quotes/core', StockQuoteController.getCoreQuotes.bind(StockQuoteController)],
     ['/api/cn/stock/quotes/activity', StockQuoteController.getActivityQuotes.bind(StockQuoteController)],
     ['/api/cn/stock/quotes/fundamental', StockQuoteController.getFundamentalQuotes.bind(StockQuoteController)],
+    ['/api/cn/index/quotes', IndexQuoteController.getIndexQuotes.bind(IndexQuoteController)],
 ];
 
 export default {

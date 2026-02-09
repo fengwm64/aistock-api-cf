@@ -56,5 +56,5 @@ export function getStockIdentity(symbol: string): StockIdentity {
         return { market: 'bj', board: '北交所', eastmoneyId: 0 };
     }
 
-    return { market: 'unknown', board: '未知板块', eastmoneyId: 0 };
+    return { market: 'unknown', board: '未知板块', eastmoneyId: 1 };
 }
