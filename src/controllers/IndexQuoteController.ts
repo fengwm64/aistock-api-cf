@@ -88,22 +88,47 @@ async function getIndexQuote(symbol: string): Promise<Record<string, any>> {
 
 /**
  * 获取单只全球指数行情
+ * 支持智能市场ID选择和降级机制
  */
 async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>> {
-    // 全球指数使用固定的市场 ID: 100
-    const url = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=100.${symbol}`;
+    // 智能选择市场 ID
+    // HS 开头的恒生相关指数使用 124
+    // 其他指数使用 100
+    const isHangSeng = symbol.startsWith('HS');
+    const primaryMarketId = isHangSeng ? 124 : 100;
+    const fallbackMarketId = 251; // 降级市场 ID（用于特殊指数如纳斯达克中国金龙等）
+
+    // 尝试主市场 ID
+    const primaryUrl = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=${primaryMarketId}.${symbol}`;
     
     // 限流 (东方财富)
     await eastmoneyThrottler.throttle();
 
-    const response = await fetch(url, { headers: HEADERS });
+    let response = await fetch(primaryUrl, { headers: HEADERS });
 
     if (!response.ok) {
         throw new Error(`东方财富指数接口请求失败: ${response.status}`);
     }
 
-    const json: any = await response.json();
-    const innerData = json.data;
+    let json: any = await response.json();
+    let innerData = json.data;
+
+    // 如果主市场 ID 没有数据且不是恒生指数，尝试降级到 251
+    if (!innerData && !isHangSeng) {
+        const fallbackUrl = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=${fallbackMarketId}.${symbol}`;
+        
+        // 限流 (东方财富)
+        await eastmoneyThrottler.throttle();
+        
+        response = await fetch(fallbackUrl, { headers: HEADERS });
+
+        if (!response.ok) {
+            throw new Error(`东方财富指数接口请求失败: ${response.status}`);
+        }
+
+        json = await response.json();
+        innerData = json.data;
+    }
 
     if (!innerData) {
         throw new Error(`指数 ${symbol} 数据不存在`);

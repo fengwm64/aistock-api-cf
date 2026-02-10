@@ -490,7 +490,10 @@ GET /api/gb/index/quotes?symbols=HXC,XIN9,HSTECH
 **注意事项**:
 - 指数代码支持字母+数字组合（如 `HXC`, `XIN9`, `HSTECH`），不区分大小写（会自动转换为大写）
 - 指数代码长度限制在 1-10 位
-- 全球指数使用固定的市场 ID `100`
+- 智能市场ID选择：
+  - `HS` 开头的恒生相关指数（如 `HSTECH`, `HSI`）使用市场 ID `124`
+  - 其他指数默认使用市场 ID `100`
+  - 当默认市场 ID 无数据时，自动降级到市场 ID `251`（用于特殊指数如纳斯达克中国金龙等）
 
 ---
 
@@ -705,9 +708,10 @@ GET /api/news/2285089
     - **同花顺限流器**: 用于 `ThsService`，默认 300ms 间隔
     - **东方财富限流器**: 用于 `EmInfoService`、`EmQuoteService`、`EmStockRankService`、`IndexQuoteController`，所有东财接口共享同一限流器，默认 300ms 间隔
     - **财联社限流器**: 用于 `NewsController`，默认 300ms 间隔
+  - 全球指数智能市场ID选择：`HS` 开头的恒生指数使用市场 ID `124`，其他指数默认 `100`，失败时自动降级到 `251`。
 - **优化改进**:
   - 在 `validator.ts` 中新增 `isValidGlobalIndexSymbol` 验证器，支持字母数字组合的指数代码（1-10位）。
-  - 在 `IndexQuoteController` 中新增 `getGlobalIndexQuotes` 方法，使用固定的市场 ID `100` 查询全球指数。
+  - 在 `IndexQuoteController` 中新增 `getGlobalIndexQuotes` 方法，使用智能市场 ID 选择和降级机制查询全球指数。
   - 创建 `utils/throttle.ts` 限流基础工具，提供全局限流函数和独立限流器工厂。
   - 创建 `utils/throttlers.ts` 限流器实例文件，按数据源创建独立的限流器，确保不同数据源之间不会相互干扰。
   - 在所有服务层和控制器中应用对应的限流器，确保请求频率控制的同时不影响跨数据源的并发性能。
