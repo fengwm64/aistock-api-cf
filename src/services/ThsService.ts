@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { parseTable } from '../utils/parser';
+import { thsThrottler } from '../utils/throttlers';
 
 /**
  * 同花顺数据服务
@@ -19,6 +20,9 @@ export class ThsService {
      */
     static async getProfitForecast(symbol: string): Promise<Record<string, any>> {
         const url = `${this.BASE_URL}/${symbol}/worth.html`;
+
+        // 限流 (同花顺)
+        await thsThrottler.throttle();
 
         const response = await fetch(url, { headers: this.HEADERS });
         if (!response.ok) {

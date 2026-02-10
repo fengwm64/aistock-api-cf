@@ -2,6 +2,7 @@ import { createResponse } from '../utils/response';
 import { formatToChinaTime } from '../utils/datetime';
 import { Env } from '../index';
 import * as cheerio from 'cheerio';
+import { cailianpressThrottler } from '../utils/throttlers';
 
 /**
  * 财联社新闻控制器
@@ -42,6 +43,9 @@ export class NewsController {
         url.searchParams.set('sign', this.SIGN);
 
         try {
+            // 限流 (财联社)
+            await cailianpressThrottler.throttle();
+
             const response = await fetch(url.toString(), {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -142,6 +146,9 @@ export class NewsController {
         const url = `https://www.cls.cn/detail/${id}`;
 
         try {
+            // 限流 (财联社)
+            await cailianpressThrottler.throttle();
+
             const response = await fetch(url, {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',

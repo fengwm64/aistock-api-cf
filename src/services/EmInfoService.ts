@@ -1,4 +1,5 @@
 import { getStockIdentity } from '../utils/stock';
+import { eastmoneyThrottler } from '../utils/throttlers';
 
 /**
  * 东方财富数据服务
@@ -33,6 +34,9 @@ export class EmService {
         const { eastmoneyId } = identity;
 
         const url = `${this.BASE_URL}?invt=2&fltt=2&fields=${this.FIELDS}&secid=${eastmoneyId}.${symbol}`;
+
+        // 限流 (东方财富)
+        await eastmoneyThrottler.throttle();
 
         const response = await fetch(url, {
             method: 'GET',

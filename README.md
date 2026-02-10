@@ -25,6 +25,8 @@ src/
     ├── validator.ts                # A 股代码校验
     ├── stock.ts                    # 股票市场/板块识别
     ├── datetime.ts                 # 日期时间格式化
+    ├── throttle.ts                 # 限流工具（基础实现）
+    ├── throttlers.ts               # 按数据源分组的限流器实例
     └── parser.ts                   # HTML 表格解析
 ```
 
@@ -44,6 +46,10 @@ src/
 - **Cache**: Cloudflare Workers KV
 - **HTML Parsing**: cheerio
 - **Encoding**: TextDecoder (GBK)
+- **Rate Limiting**: 按数据源分组的独立限流器
+  - 同花顺 (THS): 独立限流，默认 300ms
+  - 东方财富 (Eastmoney): 独立限流，默认 300ms（所有东财接口共享）
+  - 财联社 (Cailianpress): 独立限流，默认 300ms
 
 ---
 
@@ -695,9 +701,16 @@ GET /api/news/2285089
 ### 2026年2月10日
 - **新增功能**:
   - 新增全球指数实时行情接口 `/api/gb/index/quotes?symbols=`，支持批量查询全球指数（如恒生指数、恒生科技、中证等），代码支持字母数字组合，最多 20 只指数。
+  - 新增限流机制，按数据源分组独立限流，避免触发反爬机制：
+    - **同花顺限流器**: 用于 `ThsService`，默认 300ms 间隔
+    - **东方财富限流器**: 用于 `EmInfoService`、`EmQuoteService`、`EmStockRankService`、`IndexQuoteController`，所有东财接口共享同一限流器，默认 300ms 间隔
+    - **财联社限流器**: 用于 `NewsController`，默认 300ms 间隔
 - **优化改进**:
   - 在 `validator.ts` 中新增 `isValidGlobalIndexSymbol` 验证器，支持字母数字组合的指数代码（1-10位）。
   - 在 `IndexQuoteController` 中新增 `getGlobalIndexQuotes` 方法，使用固定的市场 ID `100` 查询全球指数。
+  - 创建 `utils/throttle.ts` 限流基础工具，提供全局限流函数和独立限流器工厂。
+  - 创建 `utils/throttlers.ts` 限流器实例文件，按数据源创建独立的限流器，确保不同数据源之间不会相互干扰。
+  - 在所有服务层和控制器中应用对应的限流器，确保请求频率控制的同时不影响跨数据源的并发性能。
 
 ### 2026年2月9日
 - **新增功能**:

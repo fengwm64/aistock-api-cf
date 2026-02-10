@@ -1,5 +1,6 @@
 import { getStockIdentity } from '../utils/stock';
 import { formatToChinaTime } from '../utils/datetime';
+import { eastmoneyThrottler } from '../utils/throttlers';
 
 /** 查询级别 */
 export type QuoteLevel = 'core' | 'activity' | 'fundamental';
@@ -132,6 +133,10 @@ export class EmQuoteService {
         const fields = this.LEVEL_FIELDS[level];
 
         const url = `${this.BASE_URL}?invt=2&fltt=2&fields=${fields}&secid=${eastmoneyId}.${symbol}`;
+        
+        // 限流 (东方财富)
+        await eastmoneyThrottler.throttle();
+
         const response = await fetch(url, {
             method: 'GET',
             headers: {

@@ -3,6 +3,7 @@ import { formatToChinaTime } from '../utils/datetime';
 import { createResponse } from '../utils/response';
 import { isValidAShareSymbol, isValidGlobalIndexSymbol } from '../utils/validator';
 import { Env } from '../index';
+import { eastmoneyThrottler } from '../utils/throttlers';
 
 /** 单次最多查询数量 */
 const MAX_SYMBOLS = 20;
@@ -48,6 +49,10 @@ async function getIndexQuote(symbol: string): Promise<Record<string, any>> {
     const indexId = eastmoneyId === 1 ? 0 : 1;
 
     const url = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=${indexId}.${symbol}`;
+    
+    // 限流 (东方财富)
+    await eastmoneyThrottler.throttle();
+
     const response = await fetch(url, { headers: HEADERS });
 
     if (!response.ok) {
@@ -87,6 +92,10 @@ async function getIndexQuote(symbol: string): Promise<Record<string, any>> {
 async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>> {
     // 全球指数使用固定的市场 ID: 100
     const url = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=100.${symbol}`;
+    
+    // 限流 (东方财富)
+    await eastmoneyThrottler.throttle();
+
     const response = await fetch(url, { headers: HEADERS });
 
     if (!response.ok) {

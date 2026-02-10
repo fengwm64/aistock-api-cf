@@ -1,3 +1,5 @@
+import { eastmoneyThrottler } from '../utils/throttlers';
+
 /**
  * 东方财富个股人气榜服务
  * 数据源: https://guba.eastmoney.com/rank/
@@ -21,6 +23,9 @@ export class EmStockRankService {
      * 获取个股人气榜 Top 100（仅排名和代码）
      */
     static async getStockHotRank(): Promise<StockRankResult[]> {
+        // 限流 (东方财富)
+        await eastmoneyThrottler.throttle();
+
         const response = await fetch(this.RANK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
