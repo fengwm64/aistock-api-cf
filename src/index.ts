@@ -56,6 +56,7 @@ const queryRoutes: [string, QueryRouteHandler][] = [
     ['/api/cn/stock/quotes/activity', StockQuoteController.getActivityQuotes.bind(StockQuoteController)],
     ['/api/cn/stock/quotes/fundamental', StockQuoteController.getFundamentalQuotes.bind(StockQuoteController)],
     ['/api/cn/index/quotes', IndexQuoteController.getIndexQuotes.bind(IndexQuoteController)],
+    ['/api/gb/index/quotes', IndexQuoteController.getGlobalIndexQuotes.bind(IndexQuoteController)],
 ];
 
 export default {

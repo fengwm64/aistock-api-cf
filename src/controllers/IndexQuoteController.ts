@@ -1,7 +1,7 @@
 import { getStockIdentity } from '../utils/stock';
 import { formatToChinaTime } from '../utils/datetime';
 import { createResponse } from '../utils/response';
-import { isValidAShareSymbol } from '../utils/validator';
+import { isValidAShareSymbol, isValidGlobalIndexSymbol } from '../utils/validator';
 import { Env } from '../index';
 
 /** 单次最多查询数量 */
@@ -82,6 +82,45 @@ async function getIndexQuote(symbol: string): Promise<Record<string, any>> {
 }
 
 /**
+ * 获取单只全球指数行情
+ */
+async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>> {
+    // 全球指数使用固定的市场 ID: 100
+    const url = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=100.${symbol}`;
+    const response = await fetch(url, { headers: HEADERS });
+
+    if (!response.ok) {
+        throw new Error(`东方财富指数接口请求失败: ${response.status}`);
+    }
+
+    const json: any = await response.json();
+    const innerData = json.data;
+
+    if (!innerData) {
+        throw new Error(`指数 ${symbol} 数据不存在`);
+    }
+
+    const result: Record<string, any> = {};
+
+    for (const [key, name] of Object.entries(FIELD_NAME_MAP)) {
+        if (!(key in innerData)) continue;
+        let value = innerData[key];
+
+        if (PRICE_DIV_FIELDS.has(key) && typeof value === 'number') {
+            value = value / 100;
+        } else if (key === 'f47' && typeof value === 'number') {
+            value = value * 100; // 手 -> 股
+        } else if (key === 'f86' && typeof value === 'number') {
+            value = formatToChinaTime(value * 1000);
+        }
+
+        result[name] = value;
+    }
+
+    return result;
+}
+
+/**
  * 指数实时行情控制器
  */
 export class IndexQuoteController {
@@ -110,6 +149,48 @@ export class IndexQuoteController {
 
         try {
             const results = await Promise.allSettled(symbols.map(s => getIndexQuote(s)));
+
+            const quotes = results.map((r, i) =>
+                r.status === 'fulfilled'
+                    ? r.value
+                    : { '指数代码': symbols[i], '错误': r.reason?.message || '查询失败' }
+            );
+
+            return createResponse(200, 'success', {
+                '来源': '东方财富',
+                '指数数量': quotes.length,
+                '行情': quotes,
+            });
+        } catch (err: any) {
+            return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
+        }
+    }
+
+    static async getGlobalIndexQuotes(request: Request, env: Env, ctx: ExecutionContext) {
+        const url = new URL(request.url);
+        const symbolsParam = url.searchParams.get('symbols');
+
+        if (!symbolsParam) {
+            return createResponse(400, '缺少 symbols 参数，示例: ?symbols=HXC,XIN9,HSTECH');
+        }
+
+        const symbols = [...new Set(symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean))];
+
+        if (symbols.length === 0) {
+            return createResponse(400, '缺少 symbols 参数，示例: ?symbols=HXC,XIN9,HSTECH');
+        }
+
+        if (symbols.length > MAX_SYMBOLS) {
+            return createResponse(400, `单次最多查询 ${MAX_SYMBOLS} 只指数`);
+        }
+
+        const invalidSymbols = symbols.filter(s => !isValidGlobalIndexSymbol(s));
+        if (invalidSymbols.length > 0) {
+            return createResponse(400, `Invalid symbol(s) - 全球指数代码格式错误: ${invalidSymbols.join(', ')}`);
+        }
+
+        try {
+            const results = await Promise.allSettled(symbols.map(s => getGlobalIndexQuote(s)));
 
             const quotes = results.map((r, i) =>
                 r.status === 'fulfilled'
