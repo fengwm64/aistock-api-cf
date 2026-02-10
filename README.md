@@ -8,6 +8,7 @@ A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、
 src/
 ├── index.ts                        # 入口 & 路由分发
 ├── controllers/                    # 控制器层：参数校验、缓存逻辑、响应组装
+│   ├── StockListController.ts      # A股列表查询
 │   ├── StockInfoController.ts      # 股票基本信息
 │   ├── StockQuoteController.ts     # 股票实时行情
 │   ├── IndexQuoteController.ts     # 指数实时行情
@@ -43,6 +44,7 @@ src/
 
 - **Runtime**: Cloudflare Workers
 - **Language**: TypeScript
+- **Database**: Cloudflare D1 (SQLite)
 - **Cache**: Cloudflare Workers KV
 - **HTML Parsing**: cheerio
 - **Encoding**: TextDecoder (GBK)
@@ -65,7 +67,158 @@ src/
 }
 ```
 
-### 1. 股票基本信息
+### 1. A股列表查询
+
+从 D1 数据库查询 A 股列表，支持全量分页、关键词搜索、精确查询和组合筛选。
+
+- **URL**: `/api/cn/stocks`
+- **参数**: 
+  - `page` — 页码，默认 1
+  - `pageSize` — 每页数量，默认 50，最大 500
+  - `keyword` — 搜索关键词（代码或名称模糊匹配）
+  - `symbol` — 股票代码（精确匹配，优先级最高）
+- **数据源**: D1数据库
+
+#### 全量分页
+
+**请求示例**:
+
+```
+GET /api/cn/stocks?page=1&pageSize=20
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "数据源": "D1数据库",
+    "当前页": 1,
+    "每页数量": 20,
+    "总数量": 5432,
+    "总页数": 272,
+    "股票列表": [
+      {
+        "symbol": "000001",
+        "name": "平安银行"
+      },
+      {
+        "symbol": "000002",
+        "name": "万科A"
+      }
+    ]
+  }
+}
+```
+
+#### 关键词搜索
+
+**请求示例**:
+
+```
+GET /api/cn/stocks?keyword=银行
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "数据源": "D1数据库",
+    "当前页": 1,
+    "每页数量": 50,
+    "总数量": 45,
+    "总页数": 1,
+    "查询条件": {
+      "关键词": "银行"
+    },
+    "股票列表": [
+      {
+        "symbol": "000001",
+        "name": "平安银行"
+      },
+      {
+        "symbol": "002142",
+        "name": "宁波银行"
+      }
+    ]
+  }
+}
+```
+
+#### 精确查询
+
+**请求示例**:
+
+```
+GET /api/cn/stocks?symbol=600000
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "数据源": "D1数据库",
+    "当前页": 1,
+    "每页数量": 50,
+    "总数量": 1,
+    "总页数": 1,
+    "查询条件": {
+      "精确代码": "600000"
+    },
+    "股票列表": [
+      {
+        "symbol": "600000",
+        "name": "浦发银行"
+      }
+    ]
+  }
+}
+```
+
+#### 组合筛选
+
+**请求示例**:
+
+```
+GET /api/cn/stocks?keyword=银行&page=1&pageSize=10
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "数据源": "D1数据库",
+    "当前页": 1,
+    "每页数量": 10,
+    "总数量": 45,
+    "总页数": 5,
+    "查询条件": {
+      "关键词": "银行"
+    },
+    "股票列表": [
+      {
+        "symbol": "000001",
+        "name": "平安银行"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 2. 股票基本信息
 
 获取股票的市场、板块、总股本、流通股、行业、市值等基础数据。支持批量查询。
 
@@ -121,7 +274,7 @@ GET /api/cn/stock/infos?symbols=000001,600519
 
 ---
 
-### 2. 实时行情
+### 3. 实时行情
 
 获取股票实时行情数据，支持批量查询。提供两级接口，按数据粒度递增：
 
@@ -134,7 +287,7 @@ GET /api/cn/stock/infos?symbols=000001,600519
 - **缓存**: 无（实时数据）
 - **单位说明**: 成交量/内盘/外盘原始单位为手，已统一转换为**股**（1手=100股）；更新时间已从 Unix 时间戳转换为可读格式
 
-#### 2.1 核心行情（一级）
+#### 3.1 核心行情（一级）
 
 **请求示例**:
 
@@ -180,7 +333,7 @@ GET /api/cn/stock/quotes/core?symbols=000001,600519
 
 ---
 
-#### 2.2 盘口/活跃度（二级）
+#### 3.2 盘口/活跃度（二级）
 
 **请求示例**:
 
@@ -247,7 +400,7 @@ GET /api/cn/stock/quotes/activity?symbols=000001
 
 ---
 
-### 3. 股票基本面
+### 4. 股票基本面
 
 获取股票估值和基本面数据，包括市盈率、ROE、总市值等财务指标。
 
@@ -345,7 +498,7 @@ GET /api/cn/stock/fundamentals?symbols=000001,600519
 
 ---
 
-### 4. 盈利预测
+### 5. 盈利预测
 
 获取机构对股票的盈利预测数据，包括每股收益、净利润预测及机构详表。
 
@@ -389,7 +542,7 @@ GET /api/cn/stock/profit-forecast/600519
 
 ---
 
-### 5. 指数实时行情
+### 6. 指数实时行情
 
 获取指数（如沪深 300、上证 50 等）实时行情数据，支持批量查询。
 
@@ -469,7 +622,7 @@ GET /api/cn/index/quotes?symbols=000001,399006,399300
 
 ---
 
-### 5.1 全球指数实时行情
+### 6.1 全球指数实时行情
 
 获取全球指数（如恒生指数、恒生科技、中证等）实时行情数据，支持批量查询。
 
@@ -543,7 +696,7 @@ GET /api/gb/index/quotes?symbols=HXC,XIN9,HSTECH
 
 ---
 
-### 6. 热门人气榜
+### 7. 热门人气榜
 
 获取东方财富个股人气榜（默认 8 条，最多 100 条）。
 
@@ -577,7 +730,7 @@ GET /api/cn/market/stockrank?count=8
 
 ---
 
-### 7. 新闻头条
+### 8. 新闻头条
 
 获取财联社最新头条新闻（前 5 条）。
 
@@ -636,7 +789,7 @@ GET /api/news/headlines
 
 ---
 
-### 7.1 新闻分类
+### 8.1 新闻分类
 
 获取财联社各类别最新新闻（前 5 条），包括 A 股市场、港股市场、环球、基金/ETF 等分类。
 
@@ -691,7 +844,7 @@ GET /api/news/fund
 
 ---
 
-### 8. 新闻详情
+### 9. 新闻详情
 
 获取财联社新闻全文内容。
 
@@ -772,6 +925,13 @@ GET /api/news/2285089
 
 ### 2026年2月10日
 - **新增功能**:
+  - 新增 A 股列表查询接口，基于 Cloudflare D1 数据库：
+    - `/api/cn/stocks?page=&pageSize=` - 分页获取 A 股列表（默认每页50条，最多500条）
+    - `/api/cn/stocks/search?keyword=` - 按股票代码或名称搜索（最多返回100条）
+  - 新增 Cloudflare D1 数据库支持，存储 5000+ A 股股票的代码和名称数据
+  - 新增股票基本信息批量查询接口 `/api/cn/stock/infos?symbols=`，支持单次查询最多 20 只股票
+  - 移除人气榜缓存机制，改为实时查询，新增 `count` 参数支持自定义返回数量（默认8条，最多100条）
+  - 修复新闻详情时间解析问题，网页中国时间不再错误转换为 UTC+16
   - 新增全球指数实时行情接口 `/api/gb/index/quotes?symbols=`，支持批量查询全球指数（如恒生指数、恒生科技、中证等），代码支持字母数字组合，最多 20 只指数。
   - 新增股票基本面独立接口 `/api/cn/stock/fundamentals?symbols=`，从行情接口中独立出来，更符合语义。
   - 新增限流机制，按数据源分组独立限流，避免触发反爬机制：
@@ -780,7 +940,10 @@ GET /api/news/2285089
     - **财联社限流器**: 用于 `NewsController`，默认 300ms 间隔
   - 全球指数智能市场ID选择：`HS` 开头的恒生指数使用市场 ID `124`，其他指数默认 `100`，失败时自动降级到 `251`。
 - **重构优化**:
-  - **API路由重构**: 将 `/api/cn/stock/quotes/fundamental` 重构为 `/api/cn/stock/fundamentals`，基本面数据不应归属于行情（quotes）类别。
+  - **API路由重构**: 
+    - 将 `/api/cn/stock/quotes/fundamental` 重构为 `/api/cn/stock/fundamentals`，基本面数据不应归属于行情（quotes）类别
+    - 移除单个股票信息查询接口 `/api/cn/stock/info/:symbol`，统一使用批量接口 `/api/cn/stock/infos?symbols=`
+  - 字段名称规范化：`市场` → `市场代码`，`行业` → `所属行业`，`板块` → `所属板块`
   - 在 `validator.ts` 中新增 `isValidGlobalIndexSymbol` 验证器，支持字母数字组合的指数代码（1-10位）。
   - 在 `IndexQuoteController` 中新增 `getGlobalIndexQuotes` 方法，使用智能市场 ID 选择和降级机制查询全球指数。
   - 创建 `utils/throttle.ts` 限流基础工具，提供全局限流函数和独立限流器工厂。
@@ -800,6 +963,33 @@ GET /api/news/2285089
   - 移除 `parser.ts` 中的冗余表格验证逻辑，减少不必要的文本遍历。
   - 优化了盈利预测接口的解析逻辑，减少 Worker 超时失败的可能性。
   - 新闻详情爬取优化：预先剥离 script/style 标签，使用属性选择器快速定位内容。
+
+---
+
+## 数据库配置
+
+本项目使用 Cloudflare D1 数据库存储股票基础数据。
+
+### 初始化 D1 数据库
+
+1. **创建数据库**:
+```bash
+wrangler d1 create aistock
+```
+
+2. **更新配置**: 将返回的 `database_id` 填入 `wrangler.toml` 的 D1 配置中
+
+3. **初始化数据**: 
+```bash
+wrangler d1 execute aistock --file=./scripts/stocks.sql
+```
+
+或使用提供的脚本一键初始化：
+```bash
+./scripts/init-d1.sh
+```
+
+详细说明请参考 [D1_SETUP.md](D1_SETUP.md)。
 
 ---
 

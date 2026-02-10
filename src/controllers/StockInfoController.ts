@@ -34,8 +34,8 @@ export class StockInfoController {
             let cachedWrapper: any = null;
             let cacheService: CacheService | null = null;
 
-            if (env.AISTOCK) {
-                cacheService = new CacheService(env.AISTOCK, ctx);
+            if (env.KV) {
+                cacheService = new CacheService(env.KV, ctx);
                 cachedWrapper = await cacheService.get(cacheKey);
             }
 

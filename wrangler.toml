@@ -7,9 +7,14 @@ compatibility_flags = ["nodejs_compat"]
 
 # KV Namespace binding
 [[kv_namespaces]]
-binding = "AISTOCK" 
+binding = "KV" 
 id = "2e22a1ea7d91471e8476969f8e89ccab"
-preview_id = "2e22a1ea7d91471e8476969f8e89ccab" # Optional for local dev
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "aistock"
+database_id = "087b72de-672c-4d40-9fc8-f90b2146abfc" # 运行 wrangler d1 create aistock 后填入
 
 [[routes]]
 pattern = "extapi.aistocklink.cn"
