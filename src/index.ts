@@ -76,9 +76,34 @@ const queryRoutes: [string, QueryRouteHandler][] = [
     ['/api/gb/index/quotes', IndexQuoteController.getGlobalIndexQuotes.bind(IndexQuoteController)],
 ];
 
+function getCorsOrigin(request: Request, env: Env): string | null {
+    if (env.CORS_ALLOW_ORIGIN) return env.CORS_ALLOW_ORIGIN;
+    if (env.FRONTEND_URL) {
+        try {
+            return new URL(env.FRONTEND_URL).origin;
+        } catch {
+            return request.headers.get('Origin');
+        }
+    }
+    return request.headers.get('Origin');
+}
+
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-        const allowedMethods = ['GET', 'POST', 'DELETE'];
+        const allowedMethods = ['GET', 'POST', 'DELETE', 'OPTIONS'];
+
+        if (request.method === 'OPTIONS') {
+            const origin = getCorsOrigin(request, env);
+            const headers = new Headers();
+            if (origin) headers.set('Access-Control-Allow-Origin', origin);
+            headers.set('Access-Control-Allow-Credentials', 'true');
+            headers.set('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+            headers.set('Access-Control-Allow-Headers', request.headers.get('Access-Control-Request-Headers') || 'Content-Type');
+            headers.set('Access-Control-Max-Age', '86400');
+            headers.set('Vary', 'Origin');
+            return new Response(null, { status: 204, headers });
+        }
+
         if (!allowedMethods.includes(request.method)) {
             return createResponse(405, 'Method Not Allowed');
         }
