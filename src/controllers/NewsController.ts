@@ -83,6 +83,7 @@ export class NewsController {
                     '标题': (article.title || '').trim(),
                     '摘要': (article.brief || '').trim(),
                     '作者': (article.author || article.source || '').trim(),
+                    '标签': [],
                     '链接': link,
                 };
             });
@@ -201,6 +202,7 @@ export class NewsController {
                 'ID': id,
                 '链接': url,
                 '摘要': brief,
+                '标签': [],
                 '正文': content,
             });
         } catch (error: any) {
