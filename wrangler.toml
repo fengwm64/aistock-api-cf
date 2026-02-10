@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 # 微信公众号 AppID（非敏感，可放 vars）
 # WECHAT_APPID = "your_wechat_appid"
 # 前端首页地址（登录成功后跳转）
-# FRONTEND_URL = "https://your-frontend-domain.com"
+FRONTEND_URL = "https://aistocklink.cn/"
 
 # 敏感信息请通过 wrangler secret put 设置:
 #   wrangler secret put WECHAT_SECRET
