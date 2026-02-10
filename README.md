@@ -527,15 +527,16 @@ GET /api/gb/index/quotes?symbols=HXC,XIN9,HSTECH
 
 ### 6. 热门人气榜
 
-获取东方财富个股人气榜 Top 100。
+获取东方财富个股人气榜（默认 8 条，最多 100 条）。
 
-- **URL**: `/api/cn/market/stockrank/`
-- **缓存**: 10 分钟
+- **URL**: `/api/cn/market/stockrank`
+- **参数**: `count` — 返回数量，默认 8，范围 1-100
+- **缓存**: 无（实时数据）
 
 **请求示例**:
 
 ```
-GET /api/cn/market/stockrank/
+GET /api/cn/market/stockrank?count=8
 ```
 
 **响应示例**:
