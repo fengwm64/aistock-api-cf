@@ -1023,7 +1023,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 
 #### 10.3 获取当前登录用户
 
-- **URL**: `GET /api/auth/me`
+- **URL**: `GET /api/users/me`
 - **请求方式**: 带上浏览器 Cookie（`credentials: include`）
 - **返回**: 用户信息 + 自选股列表
 
@@ -1057,8 +1057,9 @@ GET /api/auth/wechat/login?redirect=/dashboard
 
 - **添加自选（批量）**: `POST /api/users/me/favorites`
   - Body: `{ "symbols": ["000001", "600519"] }` 或查询参数 `?symbols=000001,600519`
-- **删除自选（批量）**: `DELETE /api/users/me/favorites?symbols=000001,600519`
-  - 兼容: `POST /api/users/me/favorites/delete`（部分客户端不便发送 DELETE）
+- **删除自选（批量）**: `DELETE /api/users/me/favorites`
+  - Body: `{ "symbols": ["000001", "600519"] }`
+  - 兼容: `POST /api/users/me/favorites/delete`（部分客户端不便发送 DELETE，可用 Body 或查询参数）
 - **认证**: Cookie 中的 `token`（需携带凭证访问）
 - **返回**: 最新用户信息 + `自选股` 列表
 

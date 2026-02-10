@@ -45,7 +45,7 @@ export class UserController {
         return { ok: true, openid: payload.openid };
     }
 
-    private static async extractSymbols(request: Request): Promise<string[]> {
+    private static async extractSymbols(request: Request, allowQuery = true): Promise<string[]> {
         if (request.headers.get('Content-Type')?.includes('application/json')) {
             try {
                 const body = await request.json();
@@ -57,9 +57,11 @@ export class UserController {
                 // ignore
             }
         }
-        const url = new URL(request.url);
-        const qp = url.searchParams.get('symbols') || url.searchParams.get('symbol');
-        if (qp) return qp.split(',').map(s => s.trim()).filter(Boolean);
+        if (allowQuery) {
+            const url = new URL(request.url);
+            const qp = url.searchParams.get('symbols') || url.searchParams.get('symbol');
+            if (qp) return qp.split(',').map(s => s.trim()).filter(Boolean);
+        }
         return [];
     }
 
@@ -160,11 +162,14 @@ export class UserController {
         const { openid } = auth;
 
         const symbols = await UserController.extractSymbols(request);
+        UserController.log('addFavorites', '解析 symbols 完成', { count: symbols.length, symbols });
         if (symbols.length === 0) {
+            UserController.log('addFavorites', '❌ 缺少 symbols 参数');
             return UserController.withCors(createResponse(400, '缺少 symbols 参数'), request, env);
         }
 
         const validSymbols = symbols.filter(isValidAShareSymbol);
+        UserController.log('addFavorites', '过滤有效 symbols', { count: validSymbols.length, validSymbols });
         if (validSymbols.length === 0) {
             return UserController.withCors(createResponse(400, 'symbols 均无效，需 6 位 A 股代码'), request, env);
         }
@@ -181,7 +186,7 @@ export class UserController {
 
     /**
      * 删除自选股（批量）
-     * DELETE /api/users/me/favorites?symbols=000001,600519
+     * DELETE /api/users/me/favorites（Body: { symbols: [] }）
      * 兼容 POST /api/users/me/favorites/delete
      */
     static async removeFavorites(request: Request, env: Env): Promise<Response> {
@@ -199,12 +204,15 @@ export class UserController {
         }
         const { openid } = auth;
 
-        const symbols = await UserController.extractSymbols(request);
+        const symbols = await UserController.extractSymbols(request, !isDelete);
+        UserController.log('removeFavorites', '解析 symbols 完成', { count: symbols.length, symbols, allowQuery: !isDelete });
         if (symbols.length === 0) {
+            UserController.log('removeFavorites', '❌ 缺少 symbols 参数');
             return UserController.withCors(createResponse(400, '缺少 symbols 参数'), request, env);
         }
 
         const validSymbols = symbols.filter(isValidAShareSymbol);
+        UserController.log('removeFavorites', '过滤有效 symbols', { count: validSymbols.length, validSymbols });
         if (validSymbols.length === 0) {
             return UserController.withCors(createResponse(400, 'symbols 均无效，需 6 位 A 股代码'), request, env);
         }
