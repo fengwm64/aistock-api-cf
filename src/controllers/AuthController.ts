@@ -1,4 +1,4 @@
-import { signJwt } from '../utils/jwt';
+import { signJwt, verifyJwt } from '../utils/jwt';
 import { createResponse } from '../utils/response';
 import type { Env } from '../index';
 
@@ -8,6 +8,7 @@ import type { Env } from '../index';
  * 流程:
  *  1. GET /api/auth/wechat/login        → 302 跳转微信授权页
  *  2. GET /api/auth/wechat/callback      → code 换 token → 查/建用户 → JWT → Set-Cookie → 302 回首页
+ *  3. GET /api/auth/me                   → 从 Cookie 解析 JWT，返回当前用户信息
  */
 export class AuthController {
 
@@ -119,6 +120,69 @@ export class AuthController {
             AuthController.log('callback', '❌ 登录流程异常', { error: errMsg, stack: errStack });
             return createResponse(500, `微信登录失败: ${errMsg}`);
         }
+    }
+
+    /* ──────────── 3. 获取当前用户 ──────────── */
+
+    static async me(request: Request, env: Env): Promise<Response> {
+        AuthController.log('me', '收到获取用户信息请求');
+
+        const cookie = request.headers.get('Cookie') || '';
+        const tokenMatch = cookie.match(/(?:^|;\s*)token=([^;]+)/);
+
+        if (!tokenMatch) {
+            AuthController.log('me', '❌ Cookie 中无 token');
+            return createResponse(401, '未登录');
+        }
+
+        const token = tokenMatch[1];
+        const payload = await verifyJwt(token, env.JWT_SECRET);
+
+        if (!payload) {
+            AuthController.log('me', '❌ JWT 验证失败或已过期');
+            return createResponse(401, 'token 无效或已过期');
+        }
+
+        AuthController.log('me', '✅ JWT 验证通过', { openid: payload.openid });
+
+        // 从 D1 查询最新用户信息
+        const user = await env.DB
+            .prepare('SELECT openid, nickname, avatar_url, created_at FROM users WHERE openid = ?1')
+            .bind(payload.openid)
+            .first();
+
+        if (!user) {
+            AuthController.log('me', '❌ 用户不存在', { openid: payload.openid });
+            return createResponse(404, '用户不存在');
+        }
+
+        AuthController.log('me', '✅ 返回用户信息', { openid: user.openid, nickname: user.nickname });
+
+        // 查询用户自选股列表（关联 stocks 表获取股票简称和市场代码）
+        const { results: stocks } = await env.DB
+            .prepare(
+                `SELECT us.symbol, s.name, s.market
+                 FROM user_stocks us
+                 LEFT JOIN stocks s ON us.symbol = s.symbol
+                 WHERE us.openid = ?1
+                 ORDER BY us.created_at DESC`,
+            )
+            .bind(payload.openid)
+            .all();
+
+        AuthController.log('me', '✅ 自选股查询完成', { openid: payload.openid, count: stocks.length });
+
+        return createResponse(200, 'success', {
+            openid: user.openid,
+            nickname: user.nickname,
+            avatar_url: user.avatar_url,
+            created_at: user.created_at,
+            自选股: stocks.map((s: any) => ({
+                股票代码: s.symbol,
+                股票简称: s.name || null,
+                市场代码: s.market || null,
+            })),
+        });
     }
 
     /* ──────────── 私有方法 ──────────── */
