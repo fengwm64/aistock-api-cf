@@ -178,6 +178,50 @@ export class NewsController {
                 return false; // 找到第一个即停止
             });
 
+            // 提取时间
+            let publishTime = '';
+            const normalizePublishTime = (raw: string): string => {
+                if (!raw) return '';
+
+                const trimmed = raw.trim();
+
+                if (/^\d{10,13}$/.test(trimmed)) {
+                    const timestamp = Number(trimmed);
+                    const ms = trimmed.length === 10 ? timestamp * 1000 : timestamp;
+                    return formatToChinaTime(ms);
+                }
+
+                const normalized = trimmed
+                    .replace(/\s*星期[一二三四五六日天]\s*/g, ' ')
+                    .replace(/年|\//g, '-')
+                    .replace(/月/g, '-')
+                    .replace(/日/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                const parsed = Date.parse(normalized);
+                if (!Number.isNaN(parsed)) {
+                    return formatToChinaTime(parsed);
+                }
+
+                return trimmed;
+            };
+
+            const timeCandidates = [
+                $('.m-b-20.f-s-14.l-h-2.c-999.clearfix .f-l.m-r-10').first().text(),
+                $('.detail-time').first().text(),
+                $('[class*="detail-time"]').first().text(),
+                $('time').first().attr('datetime') || $('time').first().text(),
+                $('meta[property="article:published_time"]').attr('content'),
+                $('meta[name="pubdate"]').attr('content'),
+            ]
+                .map(value => (value || '').trim())
+                .filter(Boolean);
+
+            if (timeCandidates.length > 0) {
+                publishTime = normalizePublishTime(timeCandidates[0]);
+            }
+
             // 查找包含 detail-brief 的元素（摘要）
             let brief = '';
             $('[class*="detail-brief"]').each((_, elem) => {
@@ -212,6 +256,7 @@ export class NewsController {
             return createResponse(200, 'success', {
                 'ID': id,
                 '链接': url,
+                '时间': publishTime,
                 '标题': title,
                 '摘要': brief,
                 '标签': [],
