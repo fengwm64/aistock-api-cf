@@ -60,7 +60,7 @@ export class EmService {
         }
 
         const result: Record<string, any> = {
-            '市场': identity.market.toUpperCase(),
+            '市场代码': identity.market.toUpperCase(),
         };
 
         for (const [key, name] of Object.entries(this.CODE_NAME_MAP)) {
@@ -70,5 +70,28 @@ export class EmService {
         }
 
         return result;
+    }
+
+    /**
+     * 批量获取股票基本信息
+     * @param symbols 股票代码数组
+     */
+    static async getBatchStockInfo(symbols: string[]): Promise<Record<string, any>[]> {
+        const results = await Promise.all(
+            symbols.map(async (symbol) => {
+                try {
+                    return await this.getStockInfo(symbol);
+                } catch (err) {
+                    console.error(`Error fetching info for ${symbol}:`, err);
+                    return {
+                        '市场代码': '-',
+                        '股票代码': symbol,
+                        '股票简称': '-',
+                        '错误': err instanceof Error ? err.message : '查询失败',
+                    };
+                }
+            })
+        );
+        return results;
     }
 }
