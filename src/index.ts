@@ -61,6 +61,7 @@ const simpleRoutes: [string, SimpleRouteHandler][] = [
 const queryRoutes: [string, QueryRouteHandler][] = [
     ['/api/auth/wechat/login', AuthController.login.bind(AuthController)],
     ['/api/auth/wechat/callback', AuthController.callback.bind(AuthController)],
+    ['/api/auth/logout', AuthController.logout.bind(AuthController)],
     ['/api/auth/me', AuthController.me.bind(AuthController)],
     ['/api/cn/market/stockrank', StockRankController.getHotRank.bind(StockRankController)],
     ['/api/cn/stocks', StockListController.getStockList.bind(StockListController)],
@@ -124,7 +125,7 @@ export default {
                 }
             }
 
-            return createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/callback, /api/auth/me, /api/cn/stocks, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/fundamentals, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id');
+            return createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/callback, /api/auth/logout, /api/auth/me, /api/cn/stocks, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/fundamentals, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id');
         } catch (err: any) {
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
         }

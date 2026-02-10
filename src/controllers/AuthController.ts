@@ -224,6 +224,35 @@ export class AuthController {
         }), request, env);
     }
 
+    /* ──────────── 4. 退出登录 ──────────── */
+
+    static async logout(request: Request, env: Env): Promise<Response> {
+        AuthController.log('logout', '收到登出请求', { url: request.url });
+
+        const cookieParts = [
+            'token=deleted',
+            'Path=/',
+            'HttpOnly',
+            'Secure',
+            'SameSite=Lax',
+            'Max-Age=0',
+            'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+        ];
+        if (env.COOKIE_DOMAIN) {
+            cookieParts.push(`Domain=${env.COOKIE_DOMAIN}`);
+        }
+        const cookie = cookieParts.join('; ');
+
+        const resp = createResponse(200, 'success', null);
+        const headers = new Headers(resp.headers);
+        headers.append('Set-Cookie', cookie);
+
+        return AuthController.withCors(new Response(resp.body, {
+            status: resp.status,
+            headers,
+        }), request, env);
+    }
+
     /* ──────────── 私有方法 ──────────── */
 
     /**
