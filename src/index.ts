@@ -26,6 +26,8 @@ export interface Env {
     WECHAT_SECRET: string;
     JWT_SECRET: string;
     FRONTEND_URL: string;
+    COOKIE_DOMAIN: string;
+    CORS_ALLOW_ORIGIN: string;
 }
 
 /** 带 symbol 参数的路由 */

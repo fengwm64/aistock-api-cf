@@ -18,6 +18,32 @@ export class AuthController {
         console.log(`[Auth][${stage}] ${ts} ${message}${detail}`);
     }
 
+    private static getCorsOrigin(request: Request, env: Env): string | null {
+        if (env.CORS_ALLOW_ORIGIN) {
+            return env.CORS_ALLOW_ORIGIN;
+        }
+        if (env.FRONTEND_URL) {
+            try {
+                return new URL(env.FRONTEND_URL).origin;
+            } catch {
+                return request.headers.get('Origin');
+            }
+        }
+        return request.headers.get('Origin');
+    }
+
+    private static withCors(response: Response, request: Request, env: Env): Response {
+        const origin = AuthController.getCorsOrigin(request, env);
+        if (!origin) {
+            return response;
+        }
+        const headers = new Headers(response.headers);
+        headers.set('Access-Control-Allow-Origin', origin);
+        headers.set('Access-Control-Allow-Credentials', 'true');
+        headers.set('Vary', 'Origin');
+        return new Response(response.body, { status: response.status, headers });
+    }
+
     /* ──────────── 1. 跳转微信授权 ──────────── */
 
     static async login(request: Request, env: Env): Promise<Response> {
@@ -107,11 +133,24 @@ export class AuthController {
             const redirectTo = state.startsWith('http') ? state : `${frontendUrl}${state}`;
             AuthController.log('callback', '⑤ 登录完成，302 跳转', { redirectTo, frontendUrl, state });
 
+            const cookieParts = [
+                `token=${jwt}`,
+                'Path=/',
+                'HttpOnly',
+                'Secure',
+                'SameSite=Lax',
+                `Max-Age=${7 * 24 * 3600}`,
+            ];
+            if (env.COOKIE_DOMAIN) {
+                cookieParts.push(`Domain=${env.COOKIE_DOMAIN}`);
+            }
+            const cookie = cookieParts.join('; ');
+
             return new Response(null, {
                 status: 302,
                 headers: {
                     Location: redirectTo,
-                    'Set-Cookie': `token=${jwt}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${7 * 24 * 3600}`,
+                    'Set-Cookie': cookie,
                 },
             });
         } catch (err: any) {
@@ -132,7 +171,7 @@ export class AuthController {
 
         if (!tokenMatch) {
             AuthController.log('me', '❌ Cookie 中无 token');
-            return createResponse(401, '未登录');
+            return AuthController.withCors(createResponse(401, '未登录'), request, env);
         }
 
         const token = tokenMatch[1];
@@ -140,7 +179,7 @@ export class AuthController {
 
         if (!payload) {
             AuthController.log('me', '❌ JWT 验证失败或已过期');
-            return createResponse(401, 'token 无效或已过期');
+            return AuthController.withCors(createResponse(401, 'token 无效或已过期'), request, env);
         }
 
         AuthController.log('me', '✅ JWT 验证通过', { openid: payload.openid });
@@ -153,7 +192,7 @@ export class AuthController {
 
         if (!user) {
             AuthController.log('me', '❌ 用户不存在', { openid: payload.openid });
-            return createResponse(404, '用户不存在');
+            return AuthController.withCors(createResponse(404, '用户不存在'), request, env);
         }
 
         AuthController.log('me', '✅ 返回用户信息', { openid: user.openid, nickname: user.nickname });
@@ -172,7 +211,7 @@ export class AuthController {
 
         AuthController.log('me', '✅ 自选股查询完成', { openid: payload.openid, count: stocks.length });
 
-        return createResponse(200, 'success', {
+        return AuthController.withCors(createResponse(200, 'success', {
             openid: user.openid,
             nickname: user.nickname,
             avatar_url: user.avatar_url,
@@ -182,7 +221,7 @@ export class AuthController {
                 股票简称: s.name || null,
                 市场代码: s.market || null,
             })),
-        });
+        }), request, env);
     }
 
     /* ──────────── 私有方法 ──────────── */
