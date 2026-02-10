@@ -171,6 +171,13 @@ export class NewsController {
 
             const $ = cheerio.load(cleanHtml, { scriptingEnabled: false });
 
+            // 提取标题
+            let title = '';
+            $('.detail-title span').each((_, elem) => {
+                title = $(elem).text().trim();
+                return false; // 找到第一个即停止
+            });
+
             // 查找包含 detail-brief 的元素（摘要）
             let brief = '';
             $('[class*="detail-brief"]').each((_, elem) => {
@@ -180,27 +187,32 @@ export class NewsController {
                 return false; // 找到第一个即停止
             });
 
-            // 查找包含 detail-content 的元素（详细内容）
+            // 查找包含 detail-content 的元素（详细内容，保留HTML格式）
             let content = '';
-            $('[class*="detail-content"]').each((_, elem) => {
-                const paragraphs: string[] = [];
-                $(elem).find('p').each((_, p) => {
-                    const pText = $(p).text().trim().replace(/【[^】]*】/g, '').trim();
-                    if (pText) {
-                        paragraphs.push(pText);
-                    }
-                });
-                content = paragraphs.join('\n');
+            $('.detail-content').each((_, elem) => {
+                // 获取HTML内容并清理
+                let htmlContent = $(elem).html() || '';
+                
+                // 移除外层div包装（如果存在）
+                htmlContent = htmlContent.replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '');
+                
+                // 清理多余的空白和换行
+                htmlContent = htmlContent
+                    .replace(/\n\s*\n/g, '\n')  // 移除多余空行
+                    .trim();
+                
+                content = htmlContent;
                 return false; // 找到第一个即停止
             });
 
-            if (!brief && !content) {
+            if (!title && !brief && !content) {
                 return createResponse(404, '未找到新闻内容');
             }
 
             return createResponse(200, 'success', {
                 'ID': id,
                 '链接': url,
+                '标题': title,
                 '摘要': brief,
                 '标签': [],
                 '正文': content,
