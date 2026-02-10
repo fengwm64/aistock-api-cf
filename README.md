@@ -991,6 +991,56 @@ GET /api/news/2285089
 
 ---
 
+### 10. 微信网页授权登录
+
+基于微信 OAuth2.0 的网页授权登录，用户授权后自动在 D1 数据库创建/更新用户记录，签发 JWT 写入 Cookie。
+
+#### 10.1 跳转微信授权
+
+- **URL**: `GET /api/auth/wechat/login`
+- **参数**:
+  - `redirect`（可选）— 登录成功后跳转的路径，默认 `/`
+- **行为**: 302 跳转至微信授权页面
+
+**请求示例**:
+
+```
+GET /api/auth/wechat/login
+GET /api/auth/wechat/login?redirect=/dashboard
+```
+
+#### 10.2 微信回调
+
+- **URL**: `GET /api/auth/wechat/callback`
+- **参数**: 由微信自动附带 `code` 和 `state`
+- **行为**:
+  1. 用 `code` 向微信换取 `access_token` + `openid`
+  2. 用 `access_token` 拉取用户昵称、头像
+  3. UPSERT 至 D1 `users` 表
+  4. 签发 JWT（有效期 7 天）
+  5. `Set-Cookie: token=<jwt>; HttpOnly; Secure; SameSite=Lax`
+  6. 302 跳回前端首页或 `state` 指定的地址
+
+**环境变量（Secrets）**:
+
+| 变量名 | 说明 |
+|--------|------|
+| `WECHAT_APPID` | 微信服务号 AppID |
+| `WECHAT_SECRET` | 微信服务号 AppSecret |
+| `JWT_SECRET` | JWT 签名密钥 |
+| `FRONTEND_URL` | 前端首页地址（登录成功后默认跳转） |
+
+设置方式：
+
+```bash
+wrangler secret put WECHAT_APPID
+wrangler secret put WECHAT_SECRET
+wrangler secret put JWT_SECRET
+wrangler secret put FRONTEND_URL
+```
+
+---
+
 ## 错误响应
 
 | code | 说明 |
@@ -1016,6 +1066,11 @@ GET /api/news/2285089
 
 ### 2026年2月10日
 - **新增功能**:
+  - 新增微信网页授权登录接口：
+    - `GET /api/auth/wechat/login` — 302 跳转微信授权页
+    - `GET /api/auth/wechat/callback?code=xxx` — 回调处理：code 换 token → 拉取用户信息 → D1 入库 → 签发 JWT → Set-Cookie → 302 跳回首页
+    - 使用 Web Crypto API 实现 HMAC-SHA256 JWT 签发/验证，无外部依赖
+    - 用户表支持 UPSERT（首次登录自动创建，再次登录更新昵称/头像）
   - 新增 A 股列表查询接口，基于 Cloudflare D1 数据库：
     - `/api/cn/stocks` - 支持全量分页、关键词搜索、精确查询和组合筛选
     - **使用 D1 Sessions API 实现全球读复制**，通过将查询路由到离用户更近的只读副本来降低延迟

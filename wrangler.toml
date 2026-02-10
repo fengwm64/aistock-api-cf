@@ -4,6 +4,15 @@ compatibility_date = "2026-01-08"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
+# 微信公众号 AppID（非敏感，可放 vars）
+# WECHAT_APPID = "your_wechat_appid"
+# 前端首页地址（登录成功后跳转）
+# FRONTEND_URL = "https://your-frontend-domain.com"
+
+# 敏感信息请通过 wrangler secret put 设置:
+#   wrangler secret put WECHAT_SECRET
+#   wrangler secret put JWT_SECRET
+#   wrangler secret put WECHAT_APPID  (也可放 secret)
 
 # KV Namespace binding
 [[kv_namespaces]]
