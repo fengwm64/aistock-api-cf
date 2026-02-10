@@ -171,12 +171,20 @@ export class NewsController {
 
             const $ = cheerio.load(cleanHtml, { scriptingEnabled: false });
 
-            // 提取标题
+            // 提取标题（支持两种格式）
             let title = '';
+            // 格式1: 标准详情页
             $('.detail-title span').each((_, elem) => {
                 title = $(elem).text().trim();
-                return false; // 找到第一个即停止
+                return false;
             });
+            // 格式2: 电报快讯页
+            if (!title) {
+                $('.detail-header').each((_, elem) => {
+                    title = $(elem).text().trim();
+                    return false;
+                });
+            }
 
             // 提取时间
             let publishTime = '';
@@ -231,23 +239,45 @@ export class NewsController {
                 return false; // 找到第一个即停止
             });
 
-            // 查找包含 detail-content 的元素（详细内容，保留HTML格式）
+            // 查找详细内容（支持两种格式，保留HTML格式）
             let content = '';
+            
+            // 格式1: 标准详情页
             $('.detail-content').each((_, elem) => {
-                // 获取HTML内容并清理
                 let htmlContent = $(elem).html() || '';
-                
-                // 移除外层div包装（如果存在）
                 htmlContent = htmlContent.replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '');
-                
-                // 清理多余的空白和换行
-                htmlContent = htmlContent
-                    .replace(/\n\s*\n/g, '\n')  // 移除多余空行
-                    .trim();
-                
+                htmlContent = htmlContent.replace(/\n\s*\n/g, '\n').trim();
                 content = htmlContent;
-                return false; // 找到第一个即停止
+                return false;
             });
+
+            // 格式2: 电报快讯页
+            if (!content) {
+                const telegraphContent = $('.detail-telegraph-content').first();
+                const telegraphImages = $('.telegraph-images-box img');
+                
+                if (telegraphContent.length > 0) {
+                    let htmlContent = '';
+                    
+                    // 添加正文内容
+                    const textContent = telegraphContent.html() || '';
+                    if (textContent) {
+                        htmlContent += textContent;
+                    }
+                    
+                    // 添加图片
+                    if (telegraphImages.length > 0) {
+                        telegraphImages.each((_, img) => {
+                            const src = $(img).attr('src');
+                            if (src) {
+                                htmlContent += `\n<p><img src="${src}" alt="image"></p>`;
+                            }
+                        });
+                    }
+                    
+                    content = htmlContent.trim();
+                }
+            }
 
             if (!title && !brief && !content) {
                 return createResponse(404, '未找到新闻内容');
