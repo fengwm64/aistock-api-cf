@@ -8,9 +8,6 @@ import { eastmoneyThrottler } from '../utils/throttlers';
 /** 单次最多查询数量 */
 const MAX_SYMBOLS = 20;
 
-/** 需要 /100 的价格类字段 */
-const PRICE_DIV_FIELDS = new Set(['f43', 'f44', 'f45', 'f46', 'f60', 'f170', 'f169', 'f168']);
-
 /** 请求字段 */
 const INDEX_FIELDS = 'f57,f58,f43,f44,f45,f46,f47,f48,f60,f170,f169,f168,f296,f86';
 
@@ -48,7 +45,7 @@ async function getIndexQuote(symbol: string): Promise<Record<string, any>> {
     const { eastmoneyId } = getStockIdentity(symbol);
     const indexId = eastmoneyId === 1 ? 0 : 1;
 
-    const url = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=${indexId}.${symbol}`;
+    const url = `${BASE_URL}?invt=2&fltt=2&fields=${INDEX_FIELDS}&secid=${indexId}.${symbol}`;
     
     // 限流 (东方财富)
     await eastmoneyThrottler.throttle();
@@ -72,9 +69,7 @@ async function getIndexQuote(symbol: string): Promise<Record<string, any>> {
         if (!(key in innerData)) continue;
         let value = innerData[key];
 
-        if (PRICE_DIV_FIELDS.has(key) && typeof value === 'number') {
-            value = value / 100;
-        } else if (key === 'f47' && typeof value === 'number') {
+        if (key === 'f47' && typeof value === 'number') {
             value = value * 100; // 手 -> 股
         } else if (key === 'f86' && typeof value === 'number') {
             value = formatToChinaTime(value * 1000);
@@ -99,7 +94,7 @@ async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>>
     const fallbackMarketId = 251; // 降级市场 ID（用于特殊指数如纳斯达克中国金龙等）
 
     // 尝试主市场 ID
-    const primaryUrl = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=${primaryMarketId}.${symbol}`;
+    const primaryUrl = `${BASE_URL}?invt=2&fltt=2&fields=${INDEX_FIELDS}&secid=${primaryMarketId}.${symbol}`;
     
     // 限流 (东方财富)
     await eastmoneyThrottler.throttle();
@@ -115,7 +110,7 @@ async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>>
 
     // 如果主市场 ID 没有数据且不是恒生指数，尝试降级到 251
     if (!innerData && !isHangSeng) {
-        const fallbackUrl = `${BASE_URL}?invt=2&fltt=1&fields=${INDEX_FIELDS}&secid=${fallbackMarketId}.${symbol}`;
+        const fallbackUrl = `${BASE_URL}?invt=2&fltt=2&fields=${INDEX_FIELDS}&secid=${fallbackMarketId}.${symbol}`;
         
         // 限流 (东方财富)
         await eastmoneyThrottler.throttle();
@@ -140,9 +135,7 @@ async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>>
         if (!(key in innerData)) continue;
         let value = innerData[key];
 
-        if (PRICE_DIV_FIELDS.has(key) && typeof value === 'number') {
-            value = value / 100;
-        } else if (key === 'f47' && typeof value === 'number') {
+        if (key === 'f47' && typeof value === 'number') {
             value = value * 100; // 手 -> 股
         } else if (key === 'f86' && typeof value === 'number') {
             value = formatToChinaTime(value * 1000);
