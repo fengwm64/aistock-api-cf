@@ -13,6 +13,7 @@ export class StockListController {
     /**
      * 统一股票查询接口
      * 支持全量分页、关键词搜索、精确查询、组合筛选
+     * 使用 D1 Sessions API 实现读复制以降低延迟
      */
     static async getStockList(request: Request, env: Env, ctx: ExecutionContext) {
         const url = new URL(request.url);
@@ -42,6 +43,11 @@ export class StockListController {
         }
 
         try {
+            // 创建 D1 Session 以使用读复制
+            // 从请求头获取上一次的 bookmark，如果没有则使用 "first-unconstrained"
+            const bookmark = request.headers.get('x-d1-bookmark') ?? 'first-unconstrained';
+            const session = env.DB.withSession(bookmark);
+
             // 计算偏移量
             const offset = (page - 1) * pageSize;
 
@@ -72,16 +78,16 @@ export class StockListController {
             // 添加排序和分页
             dataQuery += ' ORDER BY symbol LIMIT ? OFFSET ?';
 
-            // 查询总数
-            const countResult = await env.DB.prepare(countQuery)
+            // 使用 session 查询总数
+            const countResult = await session.prepare(countQuery)
                 .bind(...params)
                 .first<{ total: number }>();
 
             const total = countResult?.total || 0;
             const totalPages = Math.ceil(total / pageSize);
 
-            // 查询当前页数据
-            const stocks = await env.DB.prepare(dataQuery)
+            // 使用 session 查询当前页数据
+            const result = await session.prepare(dataQuery)
                 .bind(...params, pageSize, offset)
                 .all<{ symbol: string; name: string }>();
 
@@ -91,7 +97,7 @@ export class StockListController {
                 '每页数量': pageSize,
                 '总数量': total,
                 '总页数': totalPages,
-                '股票列表': stocks.results || [],
+                '股票列表': result.results || [],
             };
 
             // 添加查询条件到响应
@@ -101,7 +107,24 @@ export class StockListController {
                 responseData['查询条件'] = { '关键词': keyword };
             }
 
-            return createResponse(200, 'success', responseData);
+            // 添加 D1 元数据（用于调试和监控）
+            if (result.meta) {
+                responseData['_meta'] = {
+                    'served_by_region': result.meta.served_by_region,
+                    'served_by_primary': result.meta.served_by_primary,
+                };
+            }
+
+            // 创建响应
+            const response = createResponse(200, 'success', responseData);
+
+            // 将 session bookmark 添加到响应头，以便后续请求继续使用
+            const newBookmark = session.getBookmark();
+            if (newBookmark) {
+                response.headers.set('x-d1-bookmark', newBookmark);
+            }
+
+            return response;
         } catch (err: any) {
             console.error('Error fetching stock list:', err);
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');

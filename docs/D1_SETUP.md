@@ -81,6 +81,68 @@ wrangler d1 delete aistock
 wrangler d1 info aistock
 ```
 
+## 7. 启用读复制（Read Replication）
+
+D1 读复制可以通过在全球多个区域创建只读副本来降低查询延迟并提高读取吞吐量。
+
+### 7.1 通过 Dashboard 启用
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 进入 **D1** 页面
+3. 选择 `aistock` 数据库
+4. 点击 **Settings**
+5. 启用 **Enable Read Replication**
+
+### 7.2 通过 REST API 启用
+
+需要先创建具有 `D1:Edit` 权限的 API Token。
+
+```bash
+# 设置你的 API Token
+export CF_API_TOKEN="your_api_token_here"
+export CF_ACCOUNT_ID="your_account_id_here"
+export CF_DATABASE_ID="087b72de-672c-4d40-9fc8-f90b2146abfc"
+
+# 启用读复制
+curl -X PUT "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${CF_DATABASE_ID}" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"read_replication": {"mode": "auto"}}'
+```
+
+### 7.3 验证读复制状态
+
+```bash
+# 查询数据库配置
+curl -X GET "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${CF_DATABASE_ID}" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}"
+```
+
+查看响应中的 `read_replication.mode` 字段：
+- `"mode": "auto"` 表示已启用
+- `"mode": "disabled"` 表示未启用
+
+### 7.4 读复制的优势
+
+- **降低延迟**：查询会路由到离用户更近的只读副本
+- **提高吞吐量**：多个副本可以并行处理读请求
+- **全球分布**：副本覆盖 ENAM、WNAM、WEUR、EEUR、APAC、OC 等区域
+- **顺序一致性**：通过 Sessions API 保证数据一致性
+
+### 7.5 无额外费用
+
+D1 读复制无需额外付费，按实际读写行数计费，与不使用读复制时相同。
+
+### 7.6 Sessions API
+
+本项目的 A 股列表查询接口已使用 D1 Sessions API，自动支持读复制：
+
+- 请求通过 `x-d1-bookmark` 头传递会话上下文
+- 响应返回新的 `x-d1-bookmark` 用于后续请求
+- 保证顺序一致性（Sequential Consistency）
+
+详细文档：[Cloudflare D1 Read Replication](https://developers.cloudflare.com/d1/best-practices/read-replication/)
+
 ## 表结构
 
 ### stocks 表

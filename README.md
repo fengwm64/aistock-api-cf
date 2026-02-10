@@ -45,6 +45,9 @@ src/
 - **Runtime**: Cloudflare Workers
 - **Language**: TypeScript
 - **Database**: Cloudflare D1 (SQLite)
+  - 使用 Sessions API 实现全球读复制
+  - 支持顺序一致性保证
+  - 覆盖 ENAM、WNAM、WEUR、EEUR、APAC、OC 等区域
 - **Cache**: Cloudflare Workers KV
 - **HTML Parsing**: cheerio
 - **Encoding**: TextDecoder (GBK)
@@ -71,13 +74,19 @@ src/
 
 从 D1 数据库查询 A 股列表，支持全量分页、关键词搜索、精确查询和组合筛选。
 
+**使用 D1 读复制（Read Replication）**：此接口使用 D1 Sessions API 实现全球读复制，通过将查询路由到离用户更近的只读副本来降低延迟并提高读取吞吐量。
+
 - **URL**: `/api/cn/stocks`
 - **参数**: 
   - `page` — 页码，默认 1
   - `pageSize` — 每页数量，默认 50，最大 500
   - `keyword` — 搜索关键词（代码或名称模糊匹配）
   - `symbol` — 股票代码（精确匹配，优先级最高）
-- **数据源**: D1数据库
+- **请求头**（可选）:
+  - `x-d1-bookmark` — 会话书签，用于继续上一次会话
+- **响应头**:
+  - `x-d1-bookmark` — 新的会话书签，可在后续请求中使用
+- **数据源**: D1数据库（支持全球读复制）
 
 #### 全量分页
 
@@ -102,7 +111,11 @@ GET /api/cn/stocks?page=1&pageSize=20
     "股票列表": [
       {
         "symbol": "000001",
-        "name": "平安银行"
+     ,
+    "_meta": {
+      "served_by_region": "APAC",
+      "served_by_primary": false
+    }   "name": "平安银行"
       },
       {
         "symbol": "000002",
@@ -926,8 +939,10 @@ GET /api/news/2285089
 ### 2026年2月10日
 - **新增功能**:
   - 新增 A 股列表查询接口，基于 Cloudflare D1 数据库：
-    - `/api/cn/stocks?page=&pageSize=` - 分页获取 A 股列表（默认每页50条，最多500条）
-    - `/api/cn/stocks/search?keyword=` - 按股票代码或名称搜索（最多返回100条）
+    - `/api/cn/stocks` - 支持全量分页、关键词搜索、精确查询和组合筛选
+    - **使用 D1 Sessions API 实现全球读复制**，通过将查询路由到离用户更近的只读副本来降低延迟
+    - 响应包含 `_meta` 字段，显示查询被哪个区域的副本处理（`served_by_region`）
+    - 支持通过 `x-d1-bookmark` 请求头/响应头维持会话连续性
   - 新增 Cloudflare D1 数据库支持，存储 5000+ A 股股票的代码和名称数据
   - 新增股票基本信息批量查询接口 `/api/cn/stock/infos?symbols=`，支持单次查询最多 20 只股票
   - 移除人气榜缓存机制，改为实时查询，新增 `count` 参数支持自定义返回数量（默认8条，最多100条）
@@ -989,7 +1004,23 @@ wrangler d1 execute aistock --file=./scripts/stocks.sql
 ./scripts/init-d1.sh
 ```
 
-详细说明请参考 [D1_SETUP.md](D1_SETUP.md)。
+4. **启用读复制（可选但推荐）**:
+```bash
+# 在 Cloudflare Dashboard 中启用，或使用 REST API
+curl -X PUT "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database_id}" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"read_replication": {"mode": "auto"}}'
+```
+
+**读复制的优势**：
+- 降低全球用户的查询延迟（通过就近的只读副本）
+- 提高读取吞吐量（多个副本并行处理）
+- 无额外费用（按实际读写行数计费）
+
+详细说明请参考：
+- [D1 数据库设置指南](docs/D1_SETUP.md)
+- [D1 读复制使用示例](docs/D1_READ_REPLICATION_USAGE.md)
 
 ---
 
