@@ -1021,14 +1021,78 @@ GET /api/auth/wechat/login?redirect=/dashboard
   5. `Set-Cookie: token=<jwt>; HttpOnly; Secure; SameSite=Lax`
   6. 302 跳回前端首页或 `state` 指定的地址
 
-**环境变量（Secrets）**:
+#### 10.3 获取当前登录用户
+
+- **URL**: `GET /api/auth/me`
+- **请求方式**: 带上浏览器 Cookie（`credentials: include`）
+- **返回**: 用户信息 + 自选股列表
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "openid": "oXXX",
+    "nickname": "张三",
+    "avatar_url": "https://...",
+    "created_at": "2026-02-10 14:00:00",
+    "自选股": [
+      { "股票代码": "600519", "股票简称": "贵州茅台", "市场代码": "SH" },
+      { "股票代码": "000001", "股票简称": "平安银行", "市场代码": "SZ" }
+    ]
+  }
+}
+```
+
+#### 10.4 退出登录
+
+- **URL**: `GET /api/auth/logout`
+- **行为**: 清除 `token` Cookie（`Max-Age=0`，带 `Domain`/`Path=/`），返回 `{ code:200, message:'success' }`
+
+---
+
+#### 10.5 自选股管理（用户态）
+
+- **添加自选（批量）**: `POST /api/users/me/favorites`
+  - Body: `{ "symbols": ["000001", "600519"] }` 或查询参数 `?symbols=000001,600519`
+- **删除自选（批量）**: `DELETE /api/users/me/favorites?symbols=000001,600519`
+  - 兼容: `POST /api/users/me/favorites/delete`（部分客户端不便发送 DELETE）
+- **认证**: Cookie 中的 `token`（需携带凭证访问）
+- **返回**: 最新用户信息 + `自选股` 列表
+
+**响应示例（添加/删除后返回相同结构）**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "openid": "oXXX",
+    "nickname": "张三",
+    "avatar_url": "https://...",
+    "created_at": "2026-02-10 14:00:00",
+    "自选股": [
+      { "股票代码": "600519", "股票简称": "贵州茅台", "市场代码": "SH" },
+      { "股票代码": "000001", "股票简称": "平安银行", "市场代码": "SZ" }
+    ]
+  }
+}
+```
+
+---
+
+**环境变量**:
 
 | 变量名 | 说明 |
 |--------|------|
 | `WECHAT_APPID` | 微信服务号 AppID |
 | `WECHAT_SECRET` | 微信服务号 AppSecret |
 | `JWT_SECRET` | JWT 签名密钥 |
-| `FRONTEND_URL` | 前端首页地址（登录成功后默认跳转） |
+| `FRONTEND_URL` | 前端首页地址（登录成功后默认跳转），例如 `https://aistocklink.cn` |
+| `COOKIE_DOMAIN` | Cookie 作用域，前后端跨子域时填父域，例如 `aistocklink.cn` |
+| `CORS_ALLOW_ORIGIN` | 允许的前端来源，例如 `https://aistocklink.cn` |
 
 设置方式：
 
@@ -1037,6 +1101,7 @@ wrangler secret put WECHAT_APPID
 wrangler secret put WECHAT_SECRET
 wrangler secret put JWT_SECRET
 wrangler secret put FRONTEND_URL
+# 可选，若不想放 secret：在 wrangler.toml 的 [vars] 写入 COOKIE_DOMAIN / CORS_ALLOW_ORIGIN
 ```
 
 ---
