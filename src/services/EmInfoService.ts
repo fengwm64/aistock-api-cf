@@ -60,8 +60,7 @@ export class EmService {
         }
 
         const result: Record<string, any> = {
-            '市场': identity.market,
-            '板块': identity.board,
+            '市场': identity.market.toUpperCase(),
         };
 
         for (const [key, name] of Object.entries(this.CODE_NAME_MAP)) {
