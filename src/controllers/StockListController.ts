@@ -100,13 +100,6 @@ export class StockListController {
                 '股票列表': result.results || [],
             };
 
-            // 添加查询条件到响应
-            if (symbol) {
-                responseData['查询条件'] = { '精确代码': symbol };
-            } else if (keyword) {
-                responseData['查询条件'] = { '关键词': keyword };
-            }
-
             // 添加 D1 元数据（用于调试和监控）
             if (result.meta) {
                 responseData['_meta'] = {

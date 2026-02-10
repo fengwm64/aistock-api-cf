@@ -146,9 +146,6 @@ GET /api/cn/stocks?keyword=银行
     "每页数量": 50,
     "总数量": 45,
     "总页数": 1,
-    "查询条件": {
-      "关键词": "银行"
-    },
     "股票列表": [
       {
         "symbol": "000001",
@@ -158,7 +155,11 @@ GET /api/cn/stocks?keyword=银行
         "symbol": "002142",
         "name": "宁波银行"
       }
-    ]
+    ],
+    "_meta": {
+      "served_by_region": "APAC",
+      "served_by_primary": false
+    }
   }
 }
 ```
@@ -183,15 +184,16 @@ GET /api/cn/stocks?symbol=600000
     "每页数量": 50,
     "总数量": 1,
     "总页数": 1,
-    "查询条件": {
-      "精确代码": "600000"
-    },
     "股票列表": [
       {
         "symbol": "600000",
         "name": "浦发银行"
       }
-    ]
+    ],
+    "_meta": {
+      "served_by_region": "APAC",
+      "served_by_primary": false
+    }
   }
 }
 ```
@@ -216,15 +218,16 @@ GET /api/cn/stocks?keyword=银行&page=1&pageSize=10
     "每页数量": 10,
     "总数量": 45,
     "总页数": 5,
-    "查询条件": {
-      "关键词": "银行"
-    },
     "股票列表": [
       {
         "symbol": "000001",
         "name": "平安银行"
       }
-    ]
+    ],
+    "_meta": {
+      "served_by_region": "APAC",
+      "served_by_primary": false
+    }
   }
 }
 ```
