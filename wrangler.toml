@@ -14,7 +14,7 @@ id = "2e22a1ea7d91471e8476969f8e89ccab"
 [[d1_databases]]
 binding = "DB"
 database_name = "aistock"
-database_id = "087b72de-672c-4d40-9fc8-f90b2146abfc" # 运行 wrangler d1 create aistock 后填入
+database_id = "f6efa1f1-4414-491c-a5d6-809fb1adfb8d" # 运行 wrangler d1 create aistock 后填入
 
 [[routes]]
 pattern = "extapi.aistocklink.cn"

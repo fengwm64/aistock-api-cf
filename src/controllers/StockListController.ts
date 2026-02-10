@@ -21,6 +21,7 @@ export class StockListController {
         const pageSizeParam = url.searchParams.get('pageSize');
         const keyword = url.searchParams.get('keyword')?.trim();
         const symbol = url.searchParams.get('symbol')?.trim();
+        const market = url.searchParams.get('market')?.trim()?.toUpperCase();
 
         // 解析页码，默认第1页
         let page = 1;
@@ -42,6 +43,17 @@ export class StockListController {
             pageSize = parsed;
         }
 
+        // 验证参数长度
+        if (symbol && symbol.length > 8) {
+            return createResponse(400, 'symbol 长度不能超过8个字符');
+        }
+        if (keyword && keyword.length > 10) {
+            return createResponse(400, '关键词长度不能超过10个字符');
+        }
+        if (market && market.length > 6) {
+            return createResponse(400, 'market 长度不能超过6个字符');
+        }
+
         try {
             // 创建 D1 Session 以使用读复制
             // 从请求头获取上一次的 bookmark，如果没有则使用 "first-unconstrained"
@@ -51,36 +63,49 @@ export class StockListController {
             // 计算偏移量
             const offset = (page - 1) * pageSize;
 
-            // 构建 SQL 查询
+            // 构建 SQL 查询（不返回 pinyin 字段）
             let countQuery = 'SELECT COUNT(*) as total FROM stocks';
-            let dataQuery = 'SELECT symbol, name FROM stocks';
-            const params: any[] = [];
+            let dataQuery = 'SELECT symbol, name, market FROM stocks';
+            const whereConditions: string[] = [];
+            const countParams: any[] = [];
+            const dataParams: any[] = [];
 
-            // 精确查询优先级最高
+            // 精确查询股票代码（使用主键索引，性能最优）
             if (symbol) {
-                if (symbol.length > 20) {
-                    return createResponse(400, 'symbol 长度不能超过20个字符');
-                }
-                countQuery += ' WHERE symbol = ?';
-                dataQuery += ' WHERE symbol = ?';
-                params.push(symbol);
+                whereConditions.push('symbol = ?');
+                countParams.push(symbol);
+                dataParams.push(symbol);
             } 
-            // 关键词搜索
+            // 关键词搜索（支持代码、名称、拼音首字母）
             else if (keyword) {
-                if (keyword.length > 20) {
-                    return createResponse(400, '关键词长度不能超过20个字符');
-                }
-                countQuery += ' WHERE symbol LIKE ? OR name LIKE ?';
-                dataQuery += ' WHERE symbol LIKE ? OR name LIKE ?';
-                params.push(`%${keyword}%`, `%${keyword}%`);
+                // 注意：LIKE '%keyword%' 无法使用索引，会全表扫描
+                // 对于大表，建议限制搜索结果或考虑使用专门的搜索引擎
+                whereConditions.push('(symbol LIKE ? OR name LIKE ? OR pinyin LIKE ?)');
+                const keywordPattern = `%${keyword}%`;
+                countParams.push(keywordPattern, keywordPattern, keywordPattern);
+                dataParams.push(keywordPattern, keywordPattern, keywordPattern);
             }
 
-            // 添加排序和分页
+            // 市场筛选（需要在 market 列上创建索引以提升性能）
+            if (market) {
+                whereConditions.push('market = ?');
+                countParams.push(market);
+                dataParams.push(market);
+            }
+
+            // 拼接 WHERE 子句
+            if (whereConditions.length > 0) {
+                const whereClause = ' WHERE ' + whereConditions.join(' AND ');
+                countQuery += whereClause;
+                dataQuery += whereClause;
+            }
+
+            // 添加排序和分页（symbol 已有主键索引，ORDER BY 性能较好）
             dataQuery += ' ORDER BY symbol LIMIT ? OFFSET ?';
 
             // 使用 session 查询总数
             const countResult = await session.prepare(countQuery)
-                .bind(...params)
+                .bind(...countParams)
                 .first<{ total: number }>();
 
             const total = countResult?.total || 0;
@@ -88,8 +113,15 @@ export class StockListController {
 
             // 使用 session 查询当前页数据
             const result = await session.prepare(dataQuery)
-                .bind(...params, pageSize, offset)
-                .all<{ symbol: string; name: string }>();
+                .bind(...dataParams, pageSize, offset)
+                .all<{ symbol: string; name: string; market: string }>();
+
+            // 将字段名转换为中文
+            const stockList = (result.results || []).map(stock => ({
+                '股票代码': stock.symbol,
+                '股票简称': stock.name,
+                '市场代码': stock.market,
+            }));
 
             const responseData: any = {
                 '数据源': 'D1数据库',
@@ -97,7 +129,7 @@ export class StockListController {
                 '每页数量': pageSize,
                 '总数量': total,
                 '总页数': totalPages,
-                '股票列表': result.results || [],
+                '股票列表': stockList,
             };
 
             // 添加 D1 元数据（用于调试和监控）

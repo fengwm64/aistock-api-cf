@@ -76,17 +76,36 @@ src/
 
 **使用 D1 读复制（Read Replication）**：此接口使用 D1 Sessions API 实现全球读复制，通过将查询路由到离用户更近的只读副本来降低延迟并提高读取吞吐量。
 
+**性能优化建议**：
+- 已为 `market` 列创建索引，市场筛选查询性能优秀
+- `symbol` 精确查询使用主键索引，性能最优
+- `keyword` 搜索使用 `LIKE '%keyword%'` 会进行全表扫描，建议限制搜索频率或结合 market 参数使用
+- 详见 [D1 性能优化指南](docs/D1_PERFORMANCE_OPTIMIZATION.md)
+
 - **URL**: `/api/cn/stocks`
 - **参数**: 
   - `page` — 页码，默认 1
   - `pageSize` — 每页数量，默认 50，最大 500
-  - `keyword` — 搜索关键词（代码或名称模糊匹配）
+  - `keyword` — 搜索关键词（代码、名称或拼音首字母模糊匹配）
   - `symbol` — 股票代码（精确匹配，优先级最高）
+  - `market` — 市场代码（精确匹配，如 SH、SZ、BJ）
 - **请求头**（可选）:
   - `x-d1-bookmark` — 会话书签，用于继续上一次会话
 - **响应头**:
   - `x-d1-bookmark` — 新的会话书签，可在后续请求中使用
 - **数据源**: D1数据库（支持全球读复制）
+
+**支持的查询组合**:
+- 全量分页（仅 page + pageSize）
+- 关键词搜索（keyword，支持拼音首字母）
+- 精确代码查询（symbol）
+- 按市场筛选（market）
+- 组合筛选（如 keyword + market、symbol + market）
+
+**返回字段**:
+- `股票代码`: 6位股票代码
+- `股票简称`: 股票名称
+- `市场代码`: 市场代码（SH/SZ/BJ）
 
 #### 全量分页
 
@@ -110,28 +129,33 @@ GET /api/cn/stocks?page=1&pageSize=20
     "总页数": 272,
     "股票列表": [
       {
-        "symbol": "000001",
-     ,
+        "股票代码": "000001",
+        "股票简称": "平安银行",
+        "市场代码": "SZ"
+      },
+      {
+        "股票代码": "000002",
+        "股票简称": "万科A",
+        "市场代码": "SZ"
+      }
+    ],
     "_meta": {
       "served_by_region": "APAC",
       "served_by_primary": false
-    }   "name": "平安银行"
-      },
-      {
-        "symbol": "000002",
-        "name": "万科A"
-      }
-    ]
+    }
   }
 }
 ```
 
 #### 关键词搜索
 
+支持按股票代码、名称或拼音首字母搜索。
+
 **请求示例**:
 
 ```
 GET /api/cn/stocks?keyword=银行
+GET /api/cn/stocks?keyword=payh  (拼音首字母搜索)
 ```
 
 **响应示例**:
@@ -148,12 +172,54 @@ GET /api/cn/stocks?keyword=银行
     "总页数": 1,
     "股票列表": [
       {
-        "symbol": "000001",
-        "name": "平安银行"
+        "股票代码": "000001",
+        "股票简称": "平安银行",
+        "市场代码": "SZ"
       },
       {
-        "symbol": "002142",
-        "name": "宁波银行"
+        "股票代码": "002142",
+        "股票简称": "宁波银行",
+        "市场代码": "SZ"
+      }
+    ],
+    "_meta": {
+      "served_by_region": "APAC",
+      "served_by_primary": false
+    }
+  }
+}
+```
+
+#### 按市场筛选
+
+**请求示例**:
+
+```
+GET /api/cn/stocks?market=SH&page=1&pageSize=20
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "数据源": "D1数据库",
+    "当前页": 1,
+    "每页数量": 20,
+    "总数量": 2156,
+    "总页数": 108,
+    "股票列表": [
+      {
+        "股票代码": "600000",
+        "股票简称": "浦发银行",
+        "市场代码": "SH"
+      },
+      {
+        "股票代码": "600004",
+        "股票简称": "白云机场",
+        "市场代码": "SH"
       }
     ],
     "_meta": {
@@ -186,8 +252,9 @@ GET /api/cn/stocks?symbol=600000
     "总页数": 1,
     "股票列表": [
       {
-        "symbol": "600000",
-        "name": "浦发银行"
+        "股票代码": "600000",
+        "股票简称": "浦发银行",
+        "市场代码": "SH"
       }
     ],
     "_meta": {
@@ -204,6 +271,8 @@ GET /api/cn/stocks?symbol=600000
 
 ```
 GET /api/cn/stocks?keyword=银行&page=1&pageSize=10
+GET /api/cn/stocks?keyword=科技&market=SZ&pageSize=20
+GET /api/cn/stocks?symbol=600000&market=SH
 ```
 
 **响应示例**:
@@ -220,8 +289,9 @@ GET /api/cn/stocks?keyword=银行&page=1&pageSize=10
     "总页数": 5,
     "股票列表": [
       {
-        "symbol": "000001",
-        "name": "平安银行"
+        "股票代码": "000001",
+        "股票简称": "平安银行",
+        "市场代码": "SZ"
       }
     ],
     "_meta": {
@@ -231,6 +301,11 @@ GET /api/cn/stocks?keyword=银行&page=1&pageSize=10
   }
 }
 ```
+
+**市场代码说明**:
+- `SH` — 上海证券交易所
+- `SZ` — 深圳证券交易所
+- `BJ` — 北京证券交易所
 
 ---
 
@@ -946,6 +1021,9 @@ GET /api/news/2285089
     - **使用 D1 Sessions API 实现全球读复制**，通过将查询路由到离用户更近的只读副本来降低延迟
     - 响应包含 `_meta` 字段，显示查询被哪个区域的副本处理（`served_by_region`）
     - 支持通过 `x-d1-bookmark` 请求头/响应头维持会话连续性
+    - **支持按市场筛选**（`market` 参数，如 SH、SZ、BJ）
+    - **关键词搜索支持拼音首字母**（存储 pinyin 字段，查询时匹配但不返回）
+    - 返回字段包含 `股票代码`、`股票简称`、`市场代码`
   - 新增 Cloudflare D1 数据库支持，存储 5000+ A 股股票的代码和名称数据
   - 新增股票基本信息批量查询接口 `/api/cn/stock/infos?symbols=`，支持单次查询最多 20 只股票
   - 移除人气榜缓存机制，改为实时查询，新增 `count` 参数支持自定义返回数量（默认8条，最多100条）
@@ -1016,6 +1094,23 @@ curl -X PUT "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/datab
   -d '{"read_replication": {"mode": "auto"}}'
 ```
 
+5. **创建索引以提升查询性能（推荐）**:
+
+使用一键脚本创建索引：
+```bash
+chmod +x scripts/create-indexes.sh
+./scripts/create-indexes.sh
+```
+
+或手动创建 market 索引：
+```bash
+wrangler d1 execute aistock --command="CREATE INDEX IF NOT EXISTS idx_stocks_market ON stocks(market);"
+```
+
+**性能提升**：
+- 按市场筛选查询性能提升 **10-100倍**
+- 组合查询（market + keyword/symbol）显著加速
+
 **读复制的优势**：
 - 降低全球用户的查询延迟（通过就近的只读副本）
 - 提高读取吞吐量（多个副本并行处理）
@@ -1024,6 +1119,7 @@ curl -X PUT "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/datab
 详细说明请参考：
 - [D1 数据库设置指南](docs/D1_SETUP.md)
 - [D1 读复制使用示例](docs/D1_READ_REPLICATION_USAGE.md)
+- [D1 性能优化指南](docs/D1_PERFORMANCE_OPTIMIZATION.md) - **查询性能优化必读**
 
 ---
 
