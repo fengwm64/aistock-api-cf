@@ -47,7 +47,7 @@ const simpleRoutes: [string, SimpleRouteHandler][] = [
     ['/api/news/headlines', NewsController.getHeadlines.bind(NewsController)],
     ['/api/news/cn', NewsController.getCnNews.bind(NewsController)],
     ['/api/news/hk', NewsController.getHkNews.bind(NewsController)],
-    ['/api/news/global', NewsController.getGlobalNews.bind(NewsController)],
+    ['/api/news/gb', NewsController.getGlobalNews.bind(NewsController)],
     ['/api/news/fund', NewsController.getFundNews.bind(NewsController)],
 ];
 

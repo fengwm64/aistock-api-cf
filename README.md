@@ -519,7 +519,7 @@ GET /api/news/headlines
 |------|------|------|
 | `/api/news/cn` | A股市场 | A 股相关新闻 |
 | `/api/news/hk` | 港股市场 | 港股相关新闻 |
-| `/api/news/global` | 环球 | 国际财经新闻 |
+| `/api/news/gb` | 环球 | 国际财经新闻 |
 | `/api/news/fund` | 基金/ETF | 基金和 ETF 相关新闻 |
 
 **请求示例**:
@@ -527,7 +527,7 @@ GET /api/news/headlines
 ```
 GET /api/news/cn
 GET /api/news/hk
-GET /api/news/global
+GET /api/news/gb
 GET /api/news/fund
 ```
 
@@ -625,7 +625,7 @@ GET /api/news/2285089
 - **新增功能**:
   - 新增指数实时行情接口 `/api/cn/index/quotes?symbols=`，支持批量查询，最多 50 只指数。
   - 新增新闻头条接口 `/api/news/headlines`，返回财联社最新头条新闻（前 5 条）。
-  - 新增新闻分类接口，支持 A 股市场 (`/api/news/cn`)、港股市场 (`/api/news/hk`)、环球 (`/api/news/global`)、基金/ETF (`/api/news/fund`) 四个分类。
+  - 新增新闻分类接口，支持 A 股市场 (`/api/news/cn`)、港股市场 (`/api/news/hk`)、环球 (`/api/news/gb`)、基金/ETF (`/api/news/fund`) 四个分类。
   - 新增新闻详情接口 `/api/news/:id`，爬取财联社新闻全文（含摘要和正文）。
 - **性能优化**:
   - 移除 `ThsService` 中的 `extractSection` 方法，减少字符串扫描的 CPU 开销。
