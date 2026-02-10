@@ -11,11 +11,20 @@ import type { Env } from '../index';
  */
 export class AuthController {
 
+    private static log(stage: string, message: string, data?: any): void {
+        const ts = new Date().toISOString();
+        const detail = data !== undefined ? ` | ${JSON.stringify(data)}` : '';
+        console.log(`[Auth][${stage}] ${ts} ${message}${detail}`);
+    }
+
     /* ──────────── 1. 跳转微信授权 ──────────── */
 
     static async login(request: Request, env: Env): Promise<Response> {
+        AuthController.log('login', '收到登录请求', { url: request.url });
+
         const appid = env.WECHAT_APPID;
         if (!appid) {
+            AuthController.log('login', '❌ 缺少 WECHAT_APPID 环境变量');
             return createResponse(500, '服务端未配置 WECHAT_APPID');
         }
 
@@ -35,6 +44,7 @@ export class AuthController {
             `&state=${encodeURIComponent(state)}` +
             `#wechat_redirect`;
 
+        AuthController.log('login', '302 跳转微信授权', { appid, redirectUri, state, authUrl });
         return Response.redirect(authUrl, 302);
     }
 
@@ -45,38 +55,56 @@ export class AuthController {
         const code = url.searchParams.get('code');
         const state = url.searchParams.get('state') || '/';
 
+        AuthController.log('callback', '收到微信回调', { code: code ? `${code.slice(0, 8)}...` : null, state });
+
         if (!code) {
+            AuthController.log('callback', '❌ 缺少 code 参数');
             return createResponse(400, '缺少 code 参数');
         }
 
         try {
             /* ① code 换 access_token + openid */
+            AuthController.log('callback', '① 开始用 code 换取 access_token');
             const tokenData = await AuthController.exchangeCodeForToken(code, env);
             if (tokenData.errcode) {
+                AuthController.log('callback', '❌ 换取 access_token 失败', { errcode: tokenData.errcode, errmsg: tokenData.errmsg });
                 return createResponse(400, `微信授权失败: ${tokenData.errmsg}`);
             }
 
             const { access_token, openid } = tokenData;
+            AuthController.log('callback', '✅ 换取 access_token 成功', { openid, scope: tokenData.scope });
 
             /* ② 拉取用户信息（snsapi_userinfo） */
+            AuthController.log('callback', '② 开始拉取用户信息', { openid });
             const userInfo = await AuthController.fetchWechatUserInfo(access_token, openid);
+
+            if (userInfo.errcode) {
+                AuthController.log('callback', '❌ 拉取用户信息失败', { errcode: userInfo.errcode, errmsg: userInfo.errmsg });
+            }
 
             const nickname = userInfo.nickname || '';
             const avatarUrl = userInfo.headimgurl || '';
+            AuthController.log('callback', '✅ 用户信息获取成功', { openid, nickname, hasAvatar: !!avatarUrl });
 
             /* ③ 查询 / 新建用户（D1） */
+            AuthController.log('callback', '③ 写入 D1 用户表（UPSERT）', { openid, nickname });
             await AuthController.upsertUser(env.DB, openid, nickname, avatarUrl);
+            AuthController.log('callback', '✅ D1 写入成功');
 
             /* ④ 签发 JWT */
             const now = Math.floor(Date.now() / 1000);
+            const exp = now + 7 * 24 * 3600;
+            AuthController.log('callback', '④ 签发 JWT', { openid, iat: now, exp });
             const jwt = await signJwt(
-                { openid, nickname, iat: now, exp: now + 7 * 24 * 3600 },
+                { openid, nickname, iat: now, exp },
                 env.JWT_SECRET,
             );
+            AuthController.log('callback', '✅ JWT 签发成功', { tokenLength: jwt.length });
 
             /* ⑤ Set-Cookie & 302 跳回前端 */
             const frontendUrl = env.FRONTEND_URL || url.origin;
             const redirectTo = state.startsWith('http') ? state : `${frontendUrl}${state}`;
+            AuthController.log('callback', '⑤ 登录完成，302 跳转', { redirectTo, frontendUrl, state });
 
             return new Response(null, {
                 status: 302,
@@ -86,7 +114,10 @@ export class AuthController {
                 },
             });
         } catch (err: any) {
-            return createResponse(500, `微信登录失败: ${err instanceof Error ? err.message : String(err)}`);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            const errStack = err instanceof Error ? err.stack : undefined;
+            AuthController.log('callback', '❌ 登录流程异常', { error: errMsg, stack: errStack });
+            return createResponse(500, `微信登录失败: ${errMsg}`);
         }
     }
 
