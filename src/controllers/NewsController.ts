@@ -193,12 +193,14 @@ export class NewsController {
 
                 const trimmed = raw.trim();
 
+                // Unix 时间戳格式
                 if (/^\d{10,13}$/.test(trimmed)) {
                     const timestamp = Number(trimmed);
                     const ms = trimmed.length === 10 ? timestamp * 1000 : timestamp;
                     return formatToChinaTime(ms);
                 }
 
+                // 清理格式：去掉星期、年月日等中文字符，统一为 YYYY-MM-DD HH:mm 格式
                 const normalized = trimmed
                     .replace(/\s*星期[一二三四五六日天]\s*/g, ' ')
                     .replace(/年|\//g, '-')
@@ -207,9 +209,13 @@ export class NewsController {
                     .replace(/\s+/g, ' ')
                     .trim();
 
-                const parsed = Date.parse(normalized);
-                if (!Number.isNaN(parsed)) {
-                    return formatToChinaTime(parsed);
+                // 匹配 YYYY-MM-DD HH:mm 或 YYYY-MM-DD HH:mm:ss 格式
+                // 这些时间已经是中国时间，不需要再做时区转换
+                const dateTimeMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
+                if (dateTimeMatch) {
+                    const [, year, month, day, hour, minute, second] = dateTimeMatch;
+                    const pad = (n: string) => n.padStart(2, '0');
+                    return `${year}-${pad(month)}-${pad(day)} ${pad(hour)}:${pad(minute)}:${pad(second || '00')}`;
                 }
 
                 return trimmed;
