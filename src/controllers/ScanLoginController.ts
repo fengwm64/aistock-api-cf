@@ -9,6 +9,8 @@ import type { Env } from '../index';
  *  1. GET  /api/auth/wechat/login/scan           → 生成带参二维码，返回 state + qr_url
  *  2. 微信推送 subscribe/SCAN 事件到 /api/auth/wechat/push → WechatEventController 调用 handleScanEvent
  *  3. GET  /api/auth/wechat/login/scan/poll?state= → 前端轮询登录结果
+ * 
+ * 注意：使用 D1 数据库替代 KV，避免最终一致性导致的延迟问题
  */
 export class ScanLoginController {
 
@@ -18,10 +20,14 @@ export class ScanLoginController {
         console.log(`[ScanLogin][${stage}] ${ts} ${message}${detail}`);
     }
 
-    /* ──────── KV Key ──────── */
-
-    private static kvKey(state: string): string {
-        return `scan_login:${state}`;
+    /* ──────── 清理过期状态 ──────── */
+    
+    private static async cleanExpiredStates(env: Env): Promise<void> {
+        const now = new Date().toISOString();
+        await env.DB
+            .prepare('DELETE FROM scan_login_states WHERE expires_at < ?1')
+            .bind(now)
+            .run();
     }
 
     /* ──────── 微信服务端 access_token（非 OAuth，用于接口调用） ──────── */
@@ -93,14 +99,17 @@ export class ScanLoginController {
             const ticket: string = wxData.ticket;
             const qrUrl = `https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=${encodeURIComponent(ticket)}`;
 
-            // 在 KV 中存储登录状态，5 分钟过期
-            await env.KV.put(
-                ScanLoginController.kvKey(state),
-                JSON.stringify({ status: 'pending' }),
-                { expirationTtl: 300 },
-            );
+            // 在 D1 中存储登录状态，5 分钟过期
+            const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
+            await env.DB
+                .prepare(
+                    `INSERT INTO scan_login_states (state, status, expires_at) 
+                     VALUES (?1, 'pending', ?2)`
+                )
+                .bind(state, expiresAt)
+                .run();
 
-            ScanLoginController.log('generateQr', '✅ 二维码生成成功', { state, ticket: ticket.slice(0, 20) + '...' });
+            ScanLoginController.log('generateQr', '✅ 二维码生成成功', { state, ticket: ticket.slice(0, 20) + '...', expiresAt });
 
             return createResponse(200, 'success', {
                 state,
@@ -127,18 +136,23 @@ export class ScanLoginController {
             }
 
             const state = sceneStr.replace('login_', '');
-            const key = ScanLoginController.kvKey(state);
             
-            ScanLoginController.log('scanEvent', '开始查询 KV', { key, state });
-            const raw = await env.KV.get(key);
+            ScanLoginController.log('scanEvent', '开始查询 D1', { state });
+            const record = await env.DB
+                .prepare(
+                    `SELECT state, status, openid, jwt, expires_at 
+                     FROM scan_login_states 
+                     WHERE state = ?1 AND expires_at > ?2`
+                )
+                .bind(state, new Date().toISOString())
+                .first();
 
-            if (!raw) {
+            if (!record) {
                 ScanLoginController.log('scanEvent', '❌ state 不存在或已过期', { state });
                 return;
             }
 
-            ScanLoginController.log('scanEvent', 'KV 原始数据', { raw });
-            const record = JSON.parse(raw);
+            ScanLoginController.log('scanEvent', 'D1 查询结果', { state, status: record.status });
             
             if (record.status !== 'pending') {
                 ScanLoginController.log('scanEvent', '⏭️ state 非 pending，跳过', { state, status: record.status });
@@ -164,15 +178,17 @@ export class ScanLoginController {
             const jwt = await signJwt({ openid, iat: now, exp }, env.JWT_SECRET);
             ScanLoginController.log('scanEvent', 'JWT 签发完成', { jwtLength: jwt.length });
 
-            // 更新 KV 状态为 confirmed，写入 JWT，保留 5 分钟给前端轮询
-            const newRecord = { status: 'confirmed', openid, jwt };
-            ScanLoginController.log('scanEvent', '准备更新 KV 状态', { key, newRecord: { ...newRecord, jwt: '***' } });
+            // 更新 D1 状态为 confirmed，写入 JWT
+            ScanLoginController.log('scanEvent', '准备更新 D1 状态', { state });
             
-            await env.KV.put(
-                key,
-                JSON.stringify(newRecord),
-                { expirationTtl: 300 },
-            );
+            await env.DB
+                .prepare(
+                    `UPDATE scan_login_states 
+                     SET status = 'confirmed', openid = ?1, jwt = ?2 
+                     WHERE state = ?3`
+                )
+                .bind(openid, jwt, state)
+                .run();
 
             ScanLoginController.log('scanEvent', '✅ 登录确认完成', { state, openid });
         } catch (err: any) {
@@ -200,14 +216,23 @@ export class ScanLoginController {
             return createResponse(400, '缺少 state 参数');
         }
 
-        const raw = await env.KV.get(ScanLoginController.kvKey(state));
+        // 清理过期状态
+        await ScanLoginController.cleanExpiredStates(env);
 
-        if (!raw) {
+        // 查询状态
+        const record = await env.DB
+            .prepare(
+                `SELECT state, status, openid, jwt, expires_at 
+                 FROM scan_login_states 
+                 WHERE state = ?1`
+            )
+            .bind(state)
+            .first() as any;
+
+        if (!record) {
             ScanLoginController.log('poll', '❌ state 不存在或已过期', { state });
             return createResponse(404, '二维码已过期或 state 无效');
         }
-
-        const record = JSON.parse(raw);
 
         if (record.status === 'pending') {
             ScanLoginController.log('poll', '⏳ 等待扫码', { state });
@@ -240,16 +265,6 @@ export class ScanLoginController {
             });
             const headers = new Headers(resp.headers);
             headers.append('Set-Cookie', cookieStr);
-
-            // 标记为已消费，延迟删除，给前端多次重试机会（60秒）
-            if (!record.consumed) {
-                await env.KV.put(
-                    ScanLoginController.kvKey(state),
-                    JSON.stringify({ ...record, consumed: true }),
-                    { expirationTtl: 60 }
-                );
-                ScanLoginController.log('poll', '标记为已消费，60秒后自动过期');
-            }
 
             const finalResponse = new Response(resp.body, { status: resp.status, headers });
             ScanLoginController.log('poll', '返回响应', { 
