@@ -7,6 +7,7 @@ import { IndexQuoteController } from './controllers/IndexQuoteController';
 import { NewsController } from './controllers/NewsController';
 import { AuthController } from './controllers/AuthController';
 import { UserController } from './controllers/UserController';
+import { WechatEventController } from './controllers/WechatEventController';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
@@ -26,6 +27,7 @@ export interface Env {
     WECHAT_APPID: string;
     WECHAT_SECRET: string;
     JWT_SECRET: string;
+    WECHAT_TOKEN: string;
     FRONTEND_URL: string;
     COOKIE_DOMAIN: string;
     CORS_ALLOW_ORIGIN: string;
@@ -62,6 +64,7 @@ const simpleRoutes: [string, SimpleRouteHandler][] = [
 const queryRoutes: [string, QueryRouteHandler][] = [
     ['/api/auth/wechat/login', AuthController.login.bind(AuthController)],
     ['/api/auth/wechat/callback', AuthController.callback.bind(AuthController)],
+    ['/api/auth/wechat/push', WechatEventController.handle.bind(WechatEventController)],
     ['/api/auth/logout', AuthController.logout.bind(AuthController)],
     ['/api/users/me', UserController.me.bind(UserController)],
     ['/api/users/me/favorites', UserController.addFavorites.bind(UserController)],

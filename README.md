@@ -1084,6 +1084,17 @@ GET /api/auth/wechat/login?redirect=/dashboard
 
 ---
 
+#### 10.6 消息与事件推送（服务端回调）
+
+- **URL**: `GET/POST /api/auth/wechat/push`
+- **用途**:
+  - GET: 微信服务器配置校验（原样返回 `echostr`）
+  - POST: 接收微信消息/事件推送（当前仅记录日志并返回 `success`，可按需扩展业务处理）
+- **签名验证**: 使用 `WECHAT_TOKEN` + `timestamp` + `nonce` 字典序拼接取 SHA1，与 `signature` 比较，失败返回 401。
+- **配置指引**: 微信开放平台「消息与事件推送」配置该地址，Token 填 `WECHAT_TOKEN`。
+
+---
+
 **环境变量**:
 
 | 变量名 | 说明 |
@@ -1091,6 +1102,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `WECHAT_APPID` | 微信服务号 AppID |
 | `WECHAT_SECRET` | 微信服务号 AppSecret |
 | `JWT_SECRET` | JWT 签名密钥 |
+| `WECHAT_TOKEN` | 微信消息推送校验 Token（与微信后台配置一致，不填则复用 `WECHAT_SECRET`） |
 | `FRONTEND_URL` | 前端首页地址（登录成功后默认跳转），例如 `https://aistocklink.cn` |
 | `COOKIE_DOMAIN` | Cookie 作用域，前后端跨子域时填父域，例如 `aistocklink.cn` |
 | `CORS_ALLOW_ORIGIN` | 允许的前端来源，例如 `https://aistocklink.cn` |
