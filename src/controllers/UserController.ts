@@ -99,7 +99,7 @@ export class UserController {
 
         const { results: stocks } = await env.DB
             .prepare(
-                `SELECT us.symbol, s.name, s.market
+                `SELECT us.symbol, s.name, s.market, us.created_at
                  FROM user_stocks us
                  LEFT JOIN stocks s ON us.symbol = s.symbol
                  WHERE us.openid = ?1
@@ -119,6 +119,7 @@ export class UserController {
                 股票代码: s.symbol,
                 股票简称: s.name || null,
                 市场代码: s.market || null,
+                添加时间: s.created_at || null,
             })),
         });
     }
