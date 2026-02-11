@@ -206,33 +206,39 @@ export class ScanLoginController {
             if (env.COOKIE_DOMAIN) {
                 cookieParts.push(`Domain=${env.COOKIE_DOMAIN}`);
             }
-        const cookieStr = cookieParts.join('; ');
+            const cookieStr = cookieParts.join('; ');
 
-        ScanLoginController.log('poll', 'Set-Cookie 内容', { cookie: cookieStr.replace(/token=[^;]+/, 'token=***') });
+            ScanLoginController.log('poll', 'Set-Cookie 内容', { cookie: cookieStr.replace(/token=[^;]+/, 'token=***') });
 
-        const resp = createResponse(200, 'confirmed', { 
-            status: 'confirmed', 
-            openid: record.openid,
-            timestamp: new Date().toISOString()
-        });
-        const headers = new Headers(resp.headers);
-        headers.append('Set-Cookie', cookieStr);
+            const resp = createResponse(200, 'confirmed', { 
+                status: 'confirmed', 
+                openid: record.openid,
+                timestamp: new Date().toISOString()
+            });
+            const headers = new Headers(resp.headers);
+            headers.append('Set-Cookie', cookieStr);
 
-        // 标记为已消费，延迟删除，给前端多次重试机会（30秒）
-        if (!record.consumed) {
-            await env.KV.put(
-                ScanLoginController.kvKey(state),
-                JSON.stringify({ ...record, consumed: true }),
-                { expirationTtl: 30 }
-            );
-            ScanLoginController.log('poll', '标记为已消费，30秒后自动过期');
+            // 标记为已消费，延迟删除，给前端多次重试机会（30秒）
+            if (!record.consumed) {
+                await env.KV.put(
+                    ScanLoginController.kvKey(state),
+                    JSON.stringify({ ...record, consumed: true }),
+                    { expirationTtl: 30 }
+                );
+                ScanLoginController.log('poll', '标记为已消费，30秒后自动过期');
+            }
+
+            const finalResponse = new Response(resp.body, { status: resp.status, headers });
+            ScanLoginController.log('poll', '返回响应', { 
+                status: finalResponse.status,
+                hasSetCookie: finalResponse.headers.has('Set-Cookie'),
+                contentType: finalResponse.headers.get('Content-Type')
+            });
+            
+            return finalResponse;
         }
 
-        const finalResponse = new Response(resp.body, { status: resp.status, headers });
-        ScanLoginController.log('poll', '返回响应', { 
-            status: finalResponse.status,
-            hasSetCookie: finalResponse.headers.has('Set-Cookie'),
-            contentType: finalResponse.headers.get('Content-Type')
-        });
-        
-        return finalResponse;
+        // 未知状态
+        return createResponse(200, record.status, { status: record.status });
+    }
+}
