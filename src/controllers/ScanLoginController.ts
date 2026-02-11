@@ -18,24 +18,6 @@ export class ScanLoginController {
         console.log(`[ScanLogin][${stage}] ${ts} ${message}${detail}`);
     }
 
-    private static getCorsOrigin(request: Request, env: Env): string | null {
-        if (env.CORS_ALLOW_ORIGIN && env.CORS_ALLOW_ORIGIN !== '*') return env.CORS_ALLOW_ORIGIN;
-        if (env.FRONTEND_URL) {
-            try { return new URL(env.FRONTEND_URL).origin; } catch { return request.headers.get('Origin'); }
-        }
-        return request.headers.get('Origin');
-    }
-
-    private static withCors(response: Response, request: Request, env: Env): Response {
-        const origin = ScanLoginController.getCorsOrigin(request, env);
-        if (!origin) return response;
-        const headers = new Headers(response.headers);
-        headers.set('Access-Control-Allow-Origin', origin);
-        headers.set('Access-Control-Allow-Credentials', 'true');
-        headers.set('Vary', 'Origin');
-        return new Response(response.body, { status: response.status, headers });
-    }
-
     /* ──────── KV Key ──────── */
 
     private static kvKey(state: string): string {
@@ -224,18 +206,33 @@ export class ScanLoginController {
             if (env.COOKIE_DOMAIN) {
                 cookieParts.push(`Domain=${env.COOKIE_DOMAIN}`);
             }
+        const cookieStr = cookieParts.join('; ');
 
-            const resp = createResponse(200, 'confirmed', { status: 'confirmed', openid: record.openid });
-            const headers = new Headers(resp.headers);
-            headers.append('Set-Cookie', cookieParts.join('; '));
+        ScanLoginController.log('poll', 'Set-Cookie 内容', { cookie: cookieStr.replace(/token=[^;]+/, 'token=***') });
 
-            // 消费后删除 KV，防止重放
-            await env.KV.delete(ScanLoginController.kvKey(state));
+        const resp = createResponse(200, 'confirmed', { 
+            status: 'confirmed', 
+            openid: record.openid,
+            timestamp: new Date().toISOString()
+        });
+        const headers = new Headers(resp.headers);
+        headers.append('Set-Cookie', cookieStr);
 
-            return new Response(resp.body, { status: resp.status, headers });
+        // 标记为已消费，延迟删除，给前端多次重试机会（30秒）
+        if (!record.consumed) {
+            await env.KV.put(
+                ScanLoginController.kvKey(state),
+                JSON.stringify({ ...record, consumed: true }),
+                { expirationTtl: 30 }
+            );
+            ScanLoginController.log('poll', '标记为已消费，30秒后自动过期');
         }
 
-        // 未知状态
-        return createResponse(200, record.status, { status: record.status });
-    }
-}
+        const finalResponse = new Response(resp.body, { status: resp.status, headers });
+        ScanLoginController.log('poll', '返回响应', { 
+            status: finalResponse.status,
+            hasSetCookie: finalResponse.headers.has('Set-Cookie'),
+            contentType: finalResponse.headers.get('Content-Type')
+        });
+        
+        return finalResponse;

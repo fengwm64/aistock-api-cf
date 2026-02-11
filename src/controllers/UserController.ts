@@ -13,28 +13,6 @@ export class UserController {
         console.log(`[User][${stage}] ${ts} ${message}${detail}`);
     }
 
-    private static getCorsOrigin(request: Request, env: Env): string | null {
-        if (env.CORS_ALLOW_ORIGIN && env.CORS_ALLOW_ORIGIN !== '*') return env.CORS_ALLOW_ORIGIN;
-        if (env.FRONTEND_URL) {
-            try {
-                return new URL(env.FRONTEND_URL).origin;
-            } catch {
-                return request.headers.get('Origin');
-            }
-        }
-        return request.headers.get('Origin');
-    }
-
-    private static withCors(response: Response, request: Request, env: Env): Response {
-        const origin = UserController.getCorsOrigin(request, env);
-        if (!origin) return response;
-        const headers = new Headers(response.headers);
-        headers.set('Access-Control-Allow-Origin', origin);
-        headers.set('Access-Control-Allow-Credentials', 'true');
-        headers.set('Vary', 'Origin');
-        return new Response(response.body, { status: response.status, headers });
-    }
-
     private static async requireAuth(request: Request, env: Env): Promise<{ ok: true; openid: string } | { ok: false; code: number; message: string }> {
         const cookie = request.headers.get('Cookie') || '';
         const tokenMatch = cookie.match(/(?:^|;\s*)token=([^;]+)/);
