@@ -94,6 +94,16 @@ function getCorsOrigin(request: Request, env: Env): string | null {
     return request.headers.get('Origin');
 }
 
+function withCors(response: Response, request: Request, env: Env): Response {
+    const origin = getCorsOrigin(request, env);
+    if (!origin) return response;
+    const headers = new Headers(response.headers);
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+    headers.set('Vary', 'Origin');
+    return new Response(response.body, { status: response.status, headers });
+}
+
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         const allowedMethods = ['GET', 'POST', 'DELETE', 'OPTIONS'];
@@ -111,7 +121,7 @@ export default {
         }
 
         if (!allowedMethods.includes(request.method)) {
-            return createResponse(405, 'Method Not Allowed');
+            return withCors(createResponse(405, 'Method Not Allowed'), request, env);
         }
 
         try {
@@ -121,14 +131,14 @@ export default {
             // 无参数路由
             for (const [prefix, handler] of simpleRoutes) {
                 if (pathname === prefix || pathname === prefix.slice(0, -1)) {
-                    return await handler(env, ctx);
+                    return withCors(await handler(env, ctx), request, env);
                 }
             }
 
             // 带查询参数路由
             for (const [path, handler] of queryRoutes) {
                 if (pathname === path || pathname === path + '/') {
-                    return await handler(request, env, ctx);
+                    return withCors(await handler(request, env, ctx), request, env);
                 }
             }
 
@@ -137,12 +147,12 @@ export default {
                 if (pathname.startsWith(prefix)) {
                     const symbol = pathname.slice(prefix.length).replace(/\/+$/, '');
                     if (!symbol) {
-                        return createResponse(400, '缺少 symbol 参数');
+                        return withCors(createResponse(400, '缺少 symbol 参数'), request, env);
                     }
                     if (!isValidAShareSymbol(symbol)) {
-                        return createResponse(400, 'Invalid symbol - A股代码必须是6位数字');
+                        return withCors(createResponse(400, 'Invalid symbol - A股代码必须是6位数字'), request, env);
                     }
-                    return await handler(symbol, env, ctx);
+                    return withCors(await handler(symbol, env, ctx), request, env);
                 }
             }
 
@@ -151,18 +161,18 @@ export default {
                 if (pathname.startsWith(prefix)) {
                     const id = pathname.slice(prefix.length).replace(/\/+$/, '');
                     if (!id) {
-                        return createResponse(400, '缺少 ID 参数');
+                        return withCors(createResponse(400, '缺少 ID 参数'), request, env);
                     }
                     if (!/^\d+$/.test(id)) {
-                        return createResponse(400, 'Invalid ID - ID 必须是数字');
+                        return withCors(createResponse(400, 'Invalid ID - ID 必须是数字'), request, env);
                     }
-                    return await handler(id, env, ctx);
+                    return withCors(await handler(id, env, ctx), request, env);
                 }
             }
 
-            return createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/fundamentals, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id');
+            return withCors(createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/fundamentals, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id'), request, env);
         } catch (err: any) {
-            return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
+            return withCors(createResponse(500, err instanceof Error ? err.message : 'Internal Server Error'), request, env);
         }
     },
 };

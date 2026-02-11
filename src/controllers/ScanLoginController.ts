@@ -105,10 +105,7 @@ export class ScanLoginController {
 
             if (wxData.errcode) {
                 ScanLoginController.log('generateQr', '❌ 创建二维码失败', { errcode: wxData.errcode, errmsg: wxData.errmsg });
-                return ScanLoginController.withCors(
-                    createResponse(500, `创建二维码失败: ${wxData.errmsg}`),
-                    request, env,
-                );
+                return createResponse(500, `创建二维码失败: ${wxData.errmsg}`);
             }
 
             const ticket: string = wxData.ticket;
@@ -123,18 +120,15 @@ export class ScanLoginController {
 
             ScanLoginController.log('generateQr', '✅ 二维码生成成功', { state, ticket: ticket.slice(0, 20) + '...' });
 
-            return ScanLoginController.withCors(createResponse(200, 'success', {
+            return createResponse(200, 'success', {
                 state,
                 qr_url: qrUrl,
                 expire_seconds: 300,
-            }), request, env);
+            });
         } catch (err: any) {
             const errMsg = err instanceof Error ? err.message : String(err);
             ScanLoginController.log('generateQr', '❌ 生成二维码异常', { error: errMsg });
-            return ScanLoginController.withCors(
-                createResponse(500, `生成二维码失败: ${errMsg}`),
-                request, env,
-            );
+            return createResponse(500, `生成二维码失败: ${errMsg}`);
         }
     }
 
@@ -198,21 +192,21 @@ export class ScanLoginController {
         ScanLoginController.log('poll', '收到轮询请求', { state });
 
         if (!state) {
-            return ScanLoginController.withCors(createResponse(400, '缺少 state 参数'), request, env);
+            return createResponse(400, '缺少 state 参数');
         }
 
         const raw = await env.KV.get(ScanLoginController.kvKey(state));
 
         if (!raw) {
             ScanLoginController.log('poll', '❌ state 不存在或已过期', { state });
-            return ScanLoginController.withCors(createResponse(404, '二维码已过期或 state 无效'), request, env);
+            return createResponse(404, '二维码已过期或 state 无效');
         }
 
         const record = JSON.parse(raw);
 
         if (record.status === 'pending') {
             ScanLoginController.log('poll', '⏳ 等待扫码', { state });
-            return ScanLoginController.withCors(createResponse(200, 'pending', { status: 'pending' }), request, env);
+            return createResponse(200, 'pending', { status: 'pending' });
         }
 
         if (record.status === 'confirmed') {
@@ -238,13 +232,10 @@ export class ScanLoginController {
             // 消费后删除 KV，防止重放
             await env.KV.delete(ScanLoginController.kvKey(state));
 
-            return ScanLoginController.withCors(
-                new Response(resp.body, { status: resp.status, headers }),
-                request, env,
-            );
+            return new Response(resp.body, { status: resp.status, headers });
         }
 
         // 未知状态
-        return ScanLoginController.withCors(createResponse(200, record.status, { status: record.status }), request, env);
+        return createResponse(200, record.status, { status: record.status });
     }
 }

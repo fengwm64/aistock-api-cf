@@ -104,7 +104,7 @@ export class UserController {
 
         const auth = await UserController.requireAuth(request, env);
         if (!auth.ok) {
-            return UserController.withCors(createResponse(auth.code, auth.message), request, env);
+            return createResponse(auth.code, auth.message);
         }
         const { openid } = auth;
 
@@ -115,7 +115,7 @@ export class UserController {
 
         if (!user) {
             UserController.log('me', '❌ 用户不存在', { openid });
-            return UserController.withCors(createResponse(404, '用户不存在'), request, env);
+            return createResponse(404, '用户不存在');
         }
 
         const { results: stocks } = await env.DB
@@ -131,7 +131,7 @@ export class UserController {
 
         UserController.log('me', '✅ 返回用户信息', { openid: user.openid, nickname: user.nickname });
 
-        return UserController.withCors(createResponse(200, 'success', {
+        return createResponse(200, 'success', {
             openid: user.openid,
             nickname: user.nickname,
             avatar_url: user.avatar_url,
@@ -141,7 +141,7 @@ export class UserController {
                 股票简称: s.name || null,
                 市场代码: s.market || null,
             })),
-        }), request, env);
+        });
     }
 
     /**
@@ -152,12 +152,12 @@ export class UserController {
         UserController.log('addFavorites', '收到添加自选股请求', { method: request.method, url: request.url });
 
         if (request.method !== 'POST') {
-            return UserController.withCors(createResponse(405, 'Method Not Allowed'), request, env);
+            return createResponse(405, 'Method Not Allowed');
         }
 
         const auth = await UserController.requireAuth(request, env);
         if (!auth.ok) {
-            return UserController.withCors(createResponse(auth.code, auth.message), request, env);
+            return createResponse(auth.code, auth.message);
         }
         const { openid } = auth;
 
@@ -165,13 +165,13 @@ export class UserController {
         UserController.log('addFavorites', '解析 symbols 完成', { count: symbols.length, symbols });
         if (symbols.length === 0) {
             UserController.log('addFavorites', '❌ 缺少 symbols 参数');
-            return UserController.withCors(createResponse(400, '缺少 symbols 参数'), request, env);
+            return createResponse(400, '缺少 symbols 参数');
         }
 
         const validSymbols = symbols.filter(isValidAShareSymbol);
         UserController.log('addFavorites', '过滤有效 symbols', { count: validSymbols.length, validSymbols });
         if (validSymbols.length === 0) {
-            return UserController.withCors(createResponse(400, 'symbols 均无效，需 6 位 A 股代码'), request, env);
+            return createResponse(400, 'symbols 均无效，需 6 位 A 股代码');
         }
 
         const stmt = env.DB.prepare('INSERT OR IGNORE INTO user_stocks (openid, symbol) VALUES (?1, ?2)');
@@ -181,7 +181,7 @@ export class UserController {
 
         UserController.log('addFavorites', '✅ 添加完成', { openid, count: validSymbols.length });
 
-        return UserController.withCors(await UserController.buildFavoritesResponse(openid, env), request, env);
+        return await UserController.buildFavoritesResponse(openid, env);
     }
 
     /**
@@ -195,12 +195,12 @@ export class UserController {
         const isDelete = request.method === 'DELETE';
         const isPostDelete = request.method === 'POST';
         if (!isDelete && !isPostDelete) {
-            return UserController.withCors(createResponse(405, 'Method Not Allowed'), request, env);
+            return createResponse(405, 'Method Not Allowed');
         }
 
         const auth = await UserController.requireAuth(request, env);
         if (!auth.ok) {
-            return UserController.withCors(createResponse(auth.code, auth.message), request, env);
+            return createResponse(auth.code, auth.message);
         }
         const { openid } = auth;
 
@@ -208,13 +208,13 @@ export class UserController {
         UserController.log('removeFavorites', '解析 symbols 完成', { count: symbols.length, symbols, allowQuery: !isDelete });
         if (symbols.length === 0) {
             UserController.log('removeFavorites', '❌ 缺少 symbols 参数');
-            return UserController.withCors(createResponse(400, '缺少 symbols 参数'), request, env);
+            return createResponse(400, '缺少 symbols 参数');
         }
 
         const validSymbols = symbols.filter(isValidAShareSymbol);
         UserController.log('removeFavorites', '过滤有效 symbols', { count: validSymbols.length, validSymbols });
         if (validSymbols.length === 0) {
-            return UserController.withCors(createResponse(400, 'symbols 均无效，需 6 位 A 股代码'), request, env);
+            return createResponse(400, 'symbols 均无效，需 6 位 A 股代码');
         }
 
         const stmt = env.DB.prepare('DELETE FROM user_stocks WHERE openid = ?1 AND symbol = ?2');
@@ -224,6 +224,6 @@ export class UserController {
 
         UserController.log('removeFavorites', '✅ 删除完成', { openid, count: validSymbols.length });
 
-        return UserController.withCors(await UserController.buildFavoritesResponse(openid, env), request, env);
+        return await UserController.buildFavoritesResponse(openid, env);
     }
 }

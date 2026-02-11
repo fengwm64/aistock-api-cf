@@ -183,10 +183,10 @@ export class AuthController {
         const headers = new Headers(resp.headers);
         headers.append('Set-Cookie', cookie);
 
-        return AuthController.withCors(new Response(resp.body, {
+        return new Response(resp.body, {
             status: resp.status,
             headers,
-        }), request, env);
+        });
     }
 
     /* ──────────── 私有方法 ──────────── */
