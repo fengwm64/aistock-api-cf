@@ -12,8 +12,7 @@ COOKIE_DOMAIN = "aistocklink.cn"
 CORS_ALLOW_ORIGIN = "https://aistocklink.cn"
 
 # 敏感信息请通过 wrangler secret put 设置:
-#   wrangler secret put WECHAT_SECRET   # 若未单独配置 WECHAT_TOKEN，将复用该值
-#   wrangler secret put WECHAT_TOKEN    # 可选，若与 WECHAT_SECRET 不同
+#   wrangler secret put WECHAT_SECRET
 #   wrangler secret put JWT_SECRET
 
 # KV Namespace binding

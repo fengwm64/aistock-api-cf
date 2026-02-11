@@ -22,7 +22,7 @@ export class WechatEventController {
 
     private static async verifySignature(env: Env, timestamp?: string, nonce?: string, signature?: string): Promise<boolean> {
         if (!timestamp || !nonce || !signature) return false;
-        const token = env.WECHAT_TOKEN || env.WECHAT_SECRET;
+        const token = env.WECHAT_TOKEN;
         if (!token) return false;
         const raw = [token, timestamp, nonce].sort().join('');
         const expected = await WechatEventController.sha1Hex(raw);

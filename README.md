@@ -1102,7 +1102,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `WECHAT_APPID` | 微信服务号 AppID |
 | `WECHAT_SECRET` | 微信服务号 AppSecret |
 | `JWT_SECRET` | JWT 签名密钥 |
-| `WECHAT_TOKEN` | 微信消息推送校验 Token（与微信后台配置一致，不填则复用 `WECHAT_SECRET`） |
+| `WECHAT_TOKEN` | 微信消息推送校验 Token（与微信后台配置一致） |
 | `FRONTEND_URL` | 前端首页地址（登录成功后默认跳转），例如 `https://aistocklink.cn` |
 | `COOKIE_DOMAIN` | Cookie 作用域，前后端跨子域时填父域，例如 `aistocklink.cn` |
 | `CORS_ALLOW_ORIGIN` | 允许的前端来源，例如 `https://aistocklink.cn` |
