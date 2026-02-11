@@ -18,7 +18,7 @@ export class AuthController {
     }
 
     private static getCorsOrigin(request: Request, env: Env): string | null {
-        if (env.CORS_ALLOW_ORIGIN) {
+        if (env.CORS_ALLOW_ORIGIN && env.CORS_ALLOW_ORIGIN !== '*') {
             return env.CORS_ALLOW_ORIGIN;
         }
         if (env.FRONTEND_URL) {

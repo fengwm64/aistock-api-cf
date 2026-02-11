@@ -1089,9 +1089,98 @@ GET /api/auth/wechat/login?redirect=/dashboard
 - **URL**: `GET/POST /api/auth/wechat/push`
 - **用途**:
   - GET: 微信服务器配置校验（原样返回 `echostr`）
-  - POST: 接收微信消息/事件推送（当前仅记录日志并返回 `success`，可按需扩展业务处理）
+  - POST: 接收微信消息/事件推送，已支持 `subscribe`（首次关注）和 `SCAN`（已关注扫码）事件，自动识别带参二维码触发扫码登录。
 - **签名验证**: 使用 `WECHAT_TOKEN` + `timestamp` + `nonce` 字典序拼接取 SHA1，与 `signature` 比较，失败返回 401。
 - **配置指引**: 微信开放平台「消息与事件推送」配置该地址，Token 填 `WECHAT_TOKEN`。
+
+---
+
+#### 10.7 扫码登录
+
+通过微信公众号带参二维码实现 PC 端扫码登录，无需微信开放平台。
+
+**流程说明**:
+
+```
+前端                          后端                          微信
+ │                             │                             │
+ │  GET /login/scan            │                             │
+ │ ─────────────────────────►  │  生成 state                 │
+ │                             │  获取 server access_token    │
+ │                             │  ─────────────────────────►  │
+ │                             │  创建临时带参二维码          │
+ │                             │  ◄─────────────────────────  │
+ │  { state, qr_url }         │  存 KV: pending              │
+ │ ◄─────────────────────────  │                             │
+ │                             │                             │
+ │  展示二维码给用户           │                             │
+ │                             │                             │
+ │                             │     用户扫码 / 关注          │
+ │                             │  ◄─────────────────────────  │
+ │                             │  subscribe/SCAN 事件         │
+ │                             │  提取 EventKey → state       │
+ │                             │  UPSERT 用户 + 签发 JWT      │
+ │                             │  更新 KV: confirmed + jwt    │
+ │                             │                             │
+ │  GET /login/scan/poll       │                             │
+ │ ─────────────────────────►  │                             │
+ │  { status: confirmed }      │                             │
+ │  Set-Cookie: token=jwt      │                             │
+ │ ◄─────────────────────────  │                             │
+```
+
+##### 10.7.1 生成扫码二维码
+
+- **URL**: `GET /api/auth/wechat/login/scan`
+- **返回**: `state`（登录跟踪 ID）、`qr_url`（二维码图片地址）、`expire_seconds`（有效期 300 秒）
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "state": "a1b2c3d4e5f6...",
+    "qr_url": "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=...",
+    "expire_seconds": 300
+  }
+}
+```
+
+##### 10.7.2 轮询登录状态
+
+- **URL**: `GET /api/auth/wechat/login/scan/poll?state=<state>`
+- **参数**: `state` — 生成二维码时返回的跟踪 ID
+- **返回状态**:
+
+| status | 说明 | HTTP 行为 |
+|--------|------|-----------|
+| `pending` | 等待用户扫码 | 200，前端继续轮询 |
+| `confirmed` | 登录成功 | 200 + `Set-Cookie: token=<jwt>`，前端停止轮询 |
+| 404 | 二维码已过期或 state 无效 | 前端提示重新生成 |
+
+**响应示例（等待中）**:
+
+```json
+{
+  "code": 200,
+  "message": "pending",
+  "data": { "status": "pending" }
+}
+```
+
+**响应示例（登录成功）**:
+
+```json
+{
+  "code": 200,
+  "message": "confirmed",
+  "data": { "status": "confirmed", "openid": "oXXX" }
+}
+```
+
+**前端轮询建议**: 每 2 秒请求一次，最多轮询 150 次（5 分钟），超时后提示用户刷新二维码。
 
 ---
 

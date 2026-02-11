@@ -8,6 +8,7 @@ import { NewsController } from './controllers/NewsController';
 import { AuthController } from './controllers/AuthController';
 import { UserController } from './controllers/UserController';
 import { WechatEventController } from './controllers/WechatEventController';
+import { ScanLoginController } from './controllers/ScanLoginController';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
@@ -65,6 +66,8 @@ const queryRoutes: [string, QueryRouteHandler][] = [
     ['/api/auth/wechat/login', AuthController.login.bind(AuthController)],
     ['/api/auth/wechat/callback', AuthController.callback.bind(AuthController)],
     ['/api/auth/wechat/push', WechatEventController.handle.bind(WechatEventController)],
+    ['/api/auth/wechat/login/scan', ScanLoginController.generateQrCode.bind(ScanLoginController)],
+    ['/api/auth/wechat/login/scan/poll', ScanLoginController.poll.bind(ScanLoginController)],
     ['/api/auth/logout', AuthController.logout.bind(AuthController)],
     ['/api/users/me', UserController.me.bind(UserController)],
     ['/api/users/me/favorites', UserController.addFavorites.bind(UserController)],
@@ -80,7 +83,7 @@ const queryRoutes: [string, QueryRouteHandler][] = [
 ];
 
 function getCorsOrigin(request: Request, env: Env): string | null {
-    if (env.CORS_ALLOW_ORIGIN) return env.CORS_ALLOW_ORIGIN;
+    if (env.CORS_ALLOW_ORIGIN && env.CORS_ALLOW_ORIGIN !== '*') return env.CORS_ALLOW_ORIGIN;
     if (env.FRONTEND_URL) {
         try {
             return new URL(env.FRONTEND_URL).origin;
@@ -157,7 +160,7 @@ export default {
                 }
             }
 
-            return createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/callback, /api/auth/logout, /api/users/me, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/fundamentals, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id');
+            return createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/fundamentals, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id');
         } catch (err: any) {
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
         }

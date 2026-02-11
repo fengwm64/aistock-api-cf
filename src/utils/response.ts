@@ -21,7 +21,6 @@ export function createResponse<T = any>(code: number, message: string, data: T |
         status: httpStatus,
         headers: {
             'Content-Type': 'application/json;charset=UTF-8',
-            'Access-Control-Allow-Origin': '*',
         },
     });
 }
