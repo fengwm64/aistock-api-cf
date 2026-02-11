@@ -218,14 +218,14 @@ export class ScanLoginController {
             const headers = new Headers(resp.headers);
             headers.append('Set-Cookie', cookieStr);
 
-            // 标记为已消费，延迟删除，给前端多次重试机会（30秒）
+            // 标记为已消费，延迟删除，给前端多次重试机会（60秒）
             if (!record.consumed) {
                 await env.KV.put(
                     ScanLoginController.kvKey(state),
                     JSON.stringify({ ...record, consumed: true }),
-                    { expirationTtl: 30 }
+                    { expirationTtl: 60 }
                 );
-                ScanLoginController.log('poll', '标记为已消费，30秒后自动过期');
+                ScanLoginController.log('poll', '标记为已消费，60秒后自动过期');
             }
 
             const finalResponse = new Response(resp.body, { status: resp.status, headers });
