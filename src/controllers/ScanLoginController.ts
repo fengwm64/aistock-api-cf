@@ -119,50 +119,73 @@ export class ScanLoginController {
     static async handleScanEvent(env: Env, openid: string, sceneStr: string): Promise<void> {
         ScanLoginController.log('scanEvent', '收到扫码事件', { openid, sceneStr });
 
-        // sceneStr 格式: login_<state>
-        if (!sceneStr.startsWith('login_')) {
-            ScanLoginController.log('scanEvent', '⏭️ 非登录场景，跳过', { sceneStr });
-            return;
+        try {
+            // sceneStr 格式: login_<state>
+            if (!sceneStr.startsWith('login_')) {
+                ScanLoginController.log('scanEvent', '⏭️ 非登录场景，跳过', { sceneStr });
+                return;
+            }
+
+            const state = sceneStr.replace('login_', '');
+            const key = ScanLoginController.kvKey(state);
+            
+            ScanLoginController.log('scanEvent', '开始查询 KV', { key, state });
+            const raw = await env.KV.get(key);
+
+            if (!raw) {
+                ScanLoginController.log('scanEvent', '❌ state 不存在或已过期', { state });
+                return;
+            }
+
+            ScanLoginController.log('scanEvent', 'KV 原始数据', { raw });
+            const record = JSON.parse(raw);
+            
+            if (record.status !== 'pending') {
+                ScanLoginController.log('scanEvent', '⏭️ state 非 pending，跳过', { state, status: record.status });
+                return;
+            }
+
+            // 查询 / 新建用户（UPSERT，扫码关注场景可能没有昵称头像，先占位）
+            ScanLoginController.log('scanEvent', '开始 UPSERT 用户', { openid });
+            await env.DB
+                .prepare(
+                    `INSERT INTO users (openid, nickname, avatar_url)
+                     VALUES (?1, '', '')
+                     ON CONFLICT(openid) DO UPDATE SET openid = excluded.openid`,
+                )
+                .bind(openid)
+                .run();
+            ScanLoginController.log('scanEvent', 'UPSERT 用户完成');
+
+            // 签发 JWT
+            const now = Math.floor(Date.now() / 1000);
+            const exp = now + 7 * 24 * 3600;
+            ScanLoginController.log('scanEvent', '开始签发 JWT', { openid, now, exp });
+            const jwt = await signJwt({ openid, iat: now, exp }, env.JWT_SECRET);
+            ScanLoginController.log('scanEvent', 'JWT 签发完成', { jwtLength: jwt.length });
+
+            // 更新 KV 状态为 confirmed，写入 JWT，保留 5 分钟给前端轮询
+            const newRecord = { status: 'confirmed', openid, jwt };
+            ScanLoginController.log('scanEvent', '准备更新 KV 状态', { key, newRecord: { ...newRecord, jwt: '***' } });
+            
+            await env.KV.put(
+                key,
+                JSON.stringify(newRecord),
+                { expirationTtl: 300 },
+            );
+
+            ScanLoginController.log('scanEvent', '✅ 登录确认完成', { state, openid });
+        } catch (err: any) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            const errStack = err instanceof Error ? err.stack : undefined;
+            ScanLoginController.log('scanEvent', '❌❌❌ 处理扫码事件异常', { 
+                error: errMsg, 
+                stack: errStack,
+                openid, 
+                sceneStr 
+            });
+            throw err; // 重新抛出让上层知道失败了
         }
-
-        const state = sceneStr.replace('login_', '');
-        const key = ScanLoginController.kvKey(state);
-        const raw = await env.KV.get(key);
-
-        if (!raw) {
-            ScanLoginController.log('scanEvent', '❌ state 不存在或已过期', { state });
-            return;
-        }
-
-        const record = JSON.parse(raw);
-        if (record.status !== 'pending') {
-            ScanLoginController.log('scanEvent', '⏭️ state 非 pending，跳过', { state, status: record.status });
-            return;
-        }
-
-        // 查询 / 新建用户（UPSERT，扫码关注场景可能没有昵称头像，先占位）
-        await env.DB
-            .prepare(
-                `INSERT INTO users (openid, nickname, avatar_url)
-                 VALUES (?1, '', '')
-                 ON CONFLICT(openid) DO UPDATE SET openid = excluded.openid`,
-            )
-            .bind(openid)
-            .run();
-
-        // 签发 JWT
-        const now = Math.floor(Date.now() / 1000);
-        const exp = now + 7 * 24 * 3600;
-        const jwt = await signJwt({ openid, iat: now, exp }, env.JWT_SECRET);
-
-        // 更新 KV 状态为 confirmed，写入 JWT，保留 5 分钟给前端轮询
-        await env.KV.put(
-            key,
-            JSON.stringify({ status: 'confirmed', openid, jwt }),
-            { expirationTtl: 300 },
-        );
-
-        ScanLoginController.log('scanEvent', '✅ 登录确认完成', { state, openid });
     }
 
     /* ──────── 3. 前端轮询登录状态 ──────── */

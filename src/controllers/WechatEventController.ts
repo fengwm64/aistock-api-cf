@@ -90,7 +90,15 @@ export class WechatEventController {
 
                 if (sceneStr && sceneStr.startsWith('login_')) {
                     WechatEventController.log('push', '🔑 扫码登录事件，转交 ScanLoginController', { sceneStr, openid: fromUser });
-                    await ScanLoginController.handleScanEvent(env, fromUser, sceneStr);
+                    try {
+                        await ScanLoginController.handleScanEvent(env, fromUser, sceneStr);
+                        WechatEventController.log('push', '✅ ScanLoginController 处理完成');
+                    } catch (err: any) {
+                        WechatEventController.log('push', '❌ ScanLoginController 处理失败', { 
+                            error: err instanceof Error ? err.message : String(err),
+                            stack: err instanceof Error ? err.stack : undefined
+                        });
+                    }
                 } else {
                     WechatEventController.log('push', '普通关注/扫码事件（非登录场景）', { sceneStr });
                 }
