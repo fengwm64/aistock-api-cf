@@ -206,4 +206,25 @@ export class UserController {
 
         return await UserController.buildFavoritesResponse(openid, env);
     }
+
+    /**
+     * 获取当前用户推送新闻（占位）
+     * GET /api/users/me/news/push
+     */
+    static async getPushNews(request: Request, env: Env): Promise<Response> {
+        UserController.log('getPushNews', '收到获取用户推送新闻请求', { method: request.method, url: request.url });
+
+        if (request.method !== 'GET') {
+            return createResponse(405, 'Method Not Allowed');
+        }
+
+        const auth = await UserController.requireAuth(request, env);
+        if (!auth.ok) {
+            return createResponse(auth.code, auth.message);
+        }
+
+        return createResponse(200, 'success', {
+            推送新闻: [],
+        });
+    }
 }
