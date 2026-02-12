@@ -694,6 +694,7 @@ GET /api/cn/stock/fundamentals?symbols=000001,600519
 ### 5. 盈利预测
 
 盈利预测数据存储在 D1 `earnings_forecast` 表。由于一个 `symbol` 可能有多条不同 `update_time` 记录，列表/检索接口均只使用每个 `symbol` 的最新记录。
+列表与检索仅返回 `forecast_netprofit_yoy` 非空的数据。
 
 #### 5.1 盈利预测分页列表
 

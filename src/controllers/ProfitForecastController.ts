@@ -253,7 +253,8 @@ export class ProfitForecastController {
         try {
             const countQuery = `${this.LATEST_FORECAST_CTE}
                 SELECT COUNT(*) AS total
-                FROM latest l`;
+                FROM latest l
+                WHERE l.forecast_netprofit_yoy IS NOT NULL`;
             const countResult = await session.prepare(countQuery).first<{ total: number }>();
             const total = countResult?.total || 0;
             const totalPages = Math.ceil(total / pageSize);
@@ -262,6 +263,7 @@ export class ProfitForecastController {
                 SELECT l.symbol, s.name AS stock_name, l.update_time, l.summary, l.forecast_netprofit_yoy
                 FROM latest l
                 LEFT JOIN stocks s ON s.symbol = l.symbol
+                WHERE l.forecast_netprofit_yoy IS NOT NULL
                 ORDER BY ${orderBy}
                 LIMIT ?1 OFFSET ?2`;
             const result = await session.prepare(dataQuery)
@@ -316,9 +318,12 @@ export class ProfitForecastController {
                 SELECT COUNT(*) AS total
                 FROM latest l
                 LEFT JOIN stocks s ON s.symbol = l.symbol
-                WHERE l.symbol LIKE ?1
+                WHERE l.forecast_netprofit_yoy IS NOT NULL
+                  AND (
+                       l.symbol LIKE ?1
                    OR COALESCE(s.name, '') LIKE ?1
-                   OR COALESCE(l.summary, '') LIKE ?1`;
+                   OR COALESCE(l.summary, '') LIKE ?1
+                  )`;
             const countResult = await session.prepare(countQuery).bind(keywordPattern).first<{ total: number }>();
             const total = countResult?.total || 0;
             const totalPages = Math.ceil(total / pageSize);
@@ -327,9 +332,12 @@ export class ProfitForecastController {
                 SELECT l.symbol, s.name AS stock_name, l.update_time, l.summary, l.forecast_netprofit_yoy
                 FROM latest l
                 LEFT JOIN stocks s ON s.symbol = l.symbol
-                WHERE l.symbol LIKE ?1
+                WHERE l.forecast_netprofit_yoy IS NOT NULL
+                  AND (
+                       l.symbol LIKE ?1
                    OR COALESCE(s.name, '') LIKE ?1
                    OR COALESCE(l.summary, '') LIKE ?1
+                  )
                 ORDER BY ${orderBy}
                 LIMIT ?2 OFFSET ?3`;
             const result = await session.prepare(dataQuery)
