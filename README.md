@@ -1381,7 +1381,34 @@ GET /api/auth/wechat/login?redirect=/dashboard
 
 ---
 
-#### 10.7 消息与事件推送（服务端回调）
+#### 10.7 用户设置（用户态）
+
+- **URL**: `GET /api/users/me/settings`
+- **认证**: Cookie 中的 `token`（需携带凭证访问）
+- **说明**: 返回当前登录用户在 `user_settings` 表中的配置；无配置时返回空数组
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "openid": "oXXX",
+    "settings": [
+      {
+        "setting_type": "daily_news_push",
+        "enabled": true,
+        "updated_at": "2026-02-12 10:00:00"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### 10.8 消息与事件推送（服务端回调）
 
 - **URL**: `GET/POST /api/auth/wechat/push`
 - **用途**:
@@ -1392,7 +1419,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 
 ---
 
-#### 10.8 扫码登录
+#### 10.9 扫码登录
 
 通过微信公众号带参二维码实现 PC 端扫码登录，无需微信开放平台。
 
@@ -1426,7 +1453,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
  │ ◄─────────────────────────  │                             │
 ```
 
-##### 10.8.1 生成扫码二维码
+##### 10.9.1 生成扫码二维码
 
 - **URL**: `GET /api/auth/wechat/login/scan`
 - **返回**: `state`（登录跟踪 ID）、`qr_url`（二维码图片地址）、`expire_seconds`（有效期 300 秒）
@@ -1445,7 +1472,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 }
 ```
 
-##### 10.8.2 轮询登录状态
+##### 10.9.2 轮询登录状态
 
 - **URL**: `GET /api/auth/wechat/login/scan/poll?state=<state>`
 - **参数**: `state` — 生成二维码时返回的跟踪 ID

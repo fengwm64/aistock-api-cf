@@ -227,4 +227,41 @@ export class UserController {
             推送新闻: [],
         });
     }
+
+    /**
+     * 获取当前用户设置
+     * GET /api/users/me/settings
+     */
+    static async getSettings(request: Request, env: Env): Promise<Response> {
+        UserController.log('getSettings', '收到获取用户设置请求', { method: request.method, url: request.url });
+
+        if (request.method !== 'GET') {
+            return createResponse(405, 'Method Not Allowed');
+        }
+
+        const auth = await UserController.requireAuth(request, env);
+        if (!auth.ok) {
+            return createResponse(auth.code, auth.message);
+        }
+        const { openid } = auth;
+
+        const { results } = await env.DB
+            .prepare(
+                `SELECT setting_type, enabled, updated_at
+                 FROM user_settings
+                 WHERE openid = ?1
+                 ORDER BY setting_type ASC`,
+            )
+            .bind(openid)
+            .all();
+
+        return createResponse(200, 'success', {
+            openid,
+            settings: (results || []).map((item: any) => ({
+                setting_type: item.setting_type,
+                enabled: Number(item.enabled) === 1,
+                updated_at: item.updated_at || null,
+            })),
+        });
+    }
 }
