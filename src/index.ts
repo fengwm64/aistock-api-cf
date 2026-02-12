@@ -48,6 +48,8 @@ type SimpleRouteHandler = (env: Env, ctx: ExecutionContext) => Promise<Response>
 type QueryRouteHandler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 /** 路径中携带 symbol，且带查询参数的路由 */
 type SymbolQueryRouteHandler = (symbol: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
+/** 路径中携带 settingType，且带查询参数的路由 */
+type SettingQueryRouteHandler = (settingType: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 
 const idRoutes: [string, IdRouteHandler][] = [
     ['/api/news/', NewsController.getNewsDetail.bind(NewsController)],
@@ -92,6 +94,10 @@ const symbolQueryRoutes: [RegExp, SymbolQueryRouteHandler][] = [
     [/^\/api\/cn\/stock\/([0-9]{6})\/profit-forecast\/?$/, ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
 ];
 
+const settingQueryRoutes: [RegExp, SettingQueryRouteHandler][] = [
+    [/^\/api\/users\/me\/settings\/([^/]+)\/?$/, UserController.updateSetting.bind(UserController)],
+];
+
 function getCorsOrigin(request: Request, env: Env): string | null {
     if (env.CORS_ALLOW_ORIGIN && env.CORS_ALLOW_ORIGIN !== '*') return env.CORS_ALLOW_ORIGIN;
     if (env.FRONTEND_URL) {
@@ -116,14 +122,14 @@ function withCors(response: Response, request: Request, env: Env): Response {
 
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-        const allowedMethods = ['GET', 'POST', 'DELETE', 'OPTIONS'];
+        const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
 
         if (request.method === 'OPTIONS') {
             const origin = getCorsOrigin(request, env);
             const headers = new Headers();
             if (origin) headers.set('Access-Control-Allow-Origin', origin);
             headers.set('Access-Control-Allow-Credentials', 'true');
-            headers.set('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+            headers.set('Access-Control-Allow-Methods', allowedMethods.join(','));
             headers.set('Access-Control-Allow-Headers', request.headers.get('Access-Control-Request-Headers') || 'Content-Type');
             headers.set('Access-Control-Max-Age', '86400');
             headers.set('Vary', 'Origin');
@@ -164,6 +170,15 @@ export default {
                 }
             }
 
+            // 路径中携带 settingType 且带查询参数的路由
+            for (const [pattern, handler] of settingQueryRoutes) {
+                const match = pathname.match(pattern);
+                if (match && match[1]) {
+                    const settingType = decodeURIComponent(match[1]);
+                    return withCors(await handler(settingType, request, env, ctx), request, env);
+                }
+            }
+
             // 带数字 ID 参数路由
             for (const [prefix, handler] of idRoutes) {
                 if (pathname.startsWith(prefix)) {
@@ -178,7 +193,7 @@ export default {
                 }
             }
 
-            return withCors(createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/settings, /api/users/me/news/push, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stocks/profit-forecast, /api/cn/stocks/profit-forecast/search, /api/cn/stocks/:symbol/news, /api/cn/stocks/:symbol/analysis, /api/cn/stock/:symbol/profit-forecast, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/quotes/kline, /api/cn/stock/fundamentals, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id'), request, env);
+            return withCors(createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/settings, /api/users/me/settings/:settingType, /api/users/me/news/push, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stocks/profit-forecast, /api/cn/stocks/profit-forecast/search, /api/cn/stocks/:symbol/news, /api/cn/stocks/:symbol/analysis, /api/cn/stock/:symbol/profit-forecast, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/quotes/kline, /api/cn/stock/fundamentals, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id'), request, env);
         } catch (err: any) {
             return withCors(createResponse(500, err instanceof Error ? err.message : 'Internal Server Error'), request, env);
         }

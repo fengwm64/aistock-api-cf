@@ -1386,6 +1386,9 @@ GET /api/auth/wechat/login?redirect=/dashboard
 - **URL**: `GET /api/users/me/settings`
 - **认证**: Cookie 中的 `token`（需携带凭证访问）
 - **说明**: 返回当前登录用户在 `user_settings` 表中的配置；无配置时返回空数组
+- **更新设置类型**: `PUT /api/users/me/settings/:settingType`
+  - Body: `{ "enabled": true }`（也支持 `0/1`）
+  - 行为: 按 `(openid, setting_type)` UPSERT 更新
 
 **响应示例**:
 
@@ -1402,6 +1405,21 @@ GET /api/auth/wechat/login?redirect=/dashboard
         "updated_at": "2026-02-12 10:00:00"
       }
     ]
+  }
+}
+```
+
+**更新响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "openid": "oXXX",
+    "setting_type": "daily_news_push",
+    "enabled": true,
+    "updated_at": "2026-02-12 11:00:00"
   }
 }
 ```

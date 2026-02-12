@@ -264,4 +264,75 @@ export class UserController {
             })),
         });
     }
+
+    /**
+     * 更新当前用户某个设置类型
+     * PUT /api/users/me/settings/:settingType
+     */
+    static async updateSetting(settingType: string, request: Request, env: Env): Promise<Response> {
+        UserController.log('updateSetting', '收到更新用户设置请求', {
+            method: request.method,
+            url: request.url,
+            settingType,
+        });
+
+        if (request.method !== 'PUT') {
+            return createResponse(405, 'Method Not Allowed');
+        }
+
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(settingType)) {
+            return createResponse(400, 'Invalid settingType - 仅支持字母/数字/_/-，长度 1-64');
+        }
+
+        const auth = await UserController.requireAuth(request, env);
+        if (!auth.ok) {
+            return createResponse(auth.code, auth.message);
+        }
+        const { openid } = auth;
+
+        let body: any;
+        try {
+            body = await request.json();
+        } catch {
+            return createResponse(400, '请求体必须是 JSON');
+        }
+
+        const enabledRaw = body?.enabled;
+        let enabledValue: 0 | 1 | null = null;
+        if (typeof enabledRaw === 'boolean') {
+            enabledValue = enabledRaw ? 1 : 0;
+        } else if (enabledRaw === 0 || enabledRaw === 1) {
+            enabledValue = enabledRaw;
+        }
+
+        if (enabledValue === null) {
+            return createResponse(400, 'Invalid enabled - enabled 必须是 boolean 或 0/1');
+        }
+
+        await env.DB
+            .prepare(
+                `INSERT INTO user_settings (openid, setting_type, enabled, updated_at)
+                 VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
+                 ON CONFLICT(openid, setting_type)
+                 DO UPDATE SET enabled = excluded.enabled, updated_at = CURRENT_TIMESTAMP`,
+            )
+            .bind(openid, settingType, enabledValue)
+            .run();
+
+        const updated = await env.DB
+            .prepare(
+                `SELECT setting_type, enabled, updated_at
+                 FROM user_settings
+                 WHERE openid = ?1 AND setting_type = ?2`,
+            )
+            .bind(openid, settingType)
+            .first<any>();
+
+        return createResponse(200, 'success', {
+            openid,
+            setting_type: updated?.setting_type || settingType,
+            enabled: Number(updated?.enabled ?? enabledValue) === 1,
+            updated_at: updated?.updated_at || null,
+        });
+    }
 }
