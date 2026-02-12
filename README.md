@@ -693,11 +693,12 @@ GET /api/cn/stock/fundamentals?symbols=000001,600519
 
 ### 5. 盈利预测
 
-获取机构对股票的盈利预测数据（仅返回摘要与详细指标预测），并将每次结果写入 D1 `earnings_forecast` 表。
+获取机构对股票的盈利预测数据（仅返回摘要与详细指标预测），采用“先查 D1，未命中再爬取并写回 D1”的流程。
 
 - **URL**: `/api/cn/stock/profit-forecast/:symbol`
-- **缓存**: 无（不使用 KV）
-- **持久化**: 写入 D1 `earnings_forecast`（`symbol + update_time` 复合主键）
+- **缓存/持久化**: D1 `earnings_forecast`（`symbol + update_time` 复合主键）
+  - 先查 D1 最新记录
+  - 未命中时爬取同花顺并写入 D1
 
 **请求示例**:
 

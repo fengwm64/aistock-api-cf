@@ -1,7 +1,12 @@
 import { ThsService } from '../services/ThsService';
 import { createResponse } from '../utils/response';
-import { formatToChinaTime } from '../utils/datetime';
 import { Env } from '../index';
+
+interface EarningsForecastRow {
+    update_time: string;
+    summary: string | null;
+    forecast_detail: unknown;
+}
 
 /**
  * 盈利预测控制器
@@ -22,6 +27,19 @@ export class ProfitForecastController {
             `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
     }
 
+    private static parseForecastDetail(raw: unknown): any[] {
+        if (Array.isArray(raw)) return raw;
+        if (typeof raw === 'string') {
+            try {
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    }
+
     static async getThsForecast(symbol: string, env: Env, ctx: ExecutionContext) {
         if (!symbol) {
             return createResponse(400, '缺少 symbol 参数');
@@ -30,6 +48,29 @@ export class ProfitForecastController {
         const source = `同花顺 https://basic.10jqka.com.cn/new/${symbol}/worth.html`;
 
         try {
+            // 先查 D1：命中则直接返回
+            const latest = await env.DB
+                .prepare(
+                    `SELECT update_time, summary, forecast_detail
+                     FROM earnings_forecast
+                     WHERE symbol = ?1
+                     ORDER BY update_time DESC
+                     LIMIT 1`
+                )
+                .bind(symbol)
+                .first<EarningsForecastRow>();
+
+            if (latest) {
+                return createResponse(200, 'success (d1)', {
+                    '股票代码': symbol,
+                    '来源': source,
+                    '更新时间': latest.update_time,
+                    '摘要': latest.summary || '',
+                    '业绩预测详表_详细指标预测': this.parseForecastDetail(latest.forecast_detail),
+                });
+            }
+
+            // D1 未命中：爬取并写入 D1
             const data = await ThsService.getProfitForecast(symbol);
             const now = Date.now();
             const updateTime = this.formatToChinaTimeWithMs(now);
@@ -53,7 +94,7 @@ export class ProfitForecastController {
             return createResponse(200, 'success', {
                 '股票代码': symbol,
                 '来源': source,
-                '更新时间': formatToChinaTime(now),
+                '更新时间': updateTime,
                 ...data,
             });
         } catch (error: any) {
