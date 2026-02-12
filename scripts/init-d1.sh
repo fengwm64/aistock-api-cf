@@ -17,11 +17,15 @@ echo ""
 echo "步骤 2: 初始化数据库表和数据"
 echo "执行命令: wrangler d1 execute aistock --file=./scripts/stocks.sql"
 wrangler d1 execute aistock --file=./scripts/stocks.sql
+echo "执行命令: wrangler d1 execute aistock --file=./scripts/stock_analysis.sql"
+wrangler d1 execute aistock --file=./scripts/stock_analysis.sql
 
 echo ""
 echo "步骤 3: 验证数据"
 echo "查询股票总数..."
 wrangler d1 execute aistock --command="SELECT COUNT(*) as count FROM stocks"
+echo "查询分析表是否创建..."
+wrangler d1 execute aistock --command="SELECT name FROM sqlite_master WHERE type='table' AND name='stock_analysis'"
 
 echo ""
 echo "查询前 5 条数据..."

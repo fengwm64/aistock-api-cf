@@ -1,6 +1,6 @@
 # AIStock API
 
-A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、盈利预测、热门人气榜、新闻头条、个股新闻等接口。
+A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、盈利预测、热门人气榜、新闻头条、个股新闻、个股 AI 评价等接口。
 
 ## 架构
 
@@ -14,12 +14,15 @@ src/
 │   ├── IndexQuoteController.ts     # 指数实时行情
 │   ├── StockRankController.ts      # 热门人气榜
 │   ├── ProfitForecastController.ts # 盈利预测
-│   └── NewsController.ts           # 新闻头条/个股新闻/新闻详情
+│   ├── NewsController.ts           # 新闻头条/个股新闻/新闻详情
+│   └── StockAnalysisController.ts  # 个股 AI 评价
 ├── services/                       # 服务层：核心业务逻辑 & 外部数据源请求
 │   ├── EmService.ts                # 东方财富 - 股票基本信息
 │   ├── EmQuoteService.ts           # 东方财富 - 股票实时行情
 │   ├── EmStockRankService.ts       # 东方财富 - 人气榜排名
 │   ├── ThsService.ts               # 同花顺 - 盈利预测
+│   ├── ClsStockNewsService.ts      # 财联社 - 个股新闻复用服务
+│   ├── StockAnalysisService.ts     # 个股 AI 评价聚合 + 大模型调用
 │   └── CacheService.ts             # KV 缓存封装
 └── utils/                          # 工具层
     ├── response.ts                 # 统一响应格式
@@ -60,7 +63,7 @@ src/
 
 ## API 接口
 
-所有接口仅支持 `GET` 请求，统一响应格式：
+接口以 `GET` 为主，部分接口支持 `POST` / `DELETE`。统一响应格式：
 
 ```json
 {
@@ -1106,6 +1109,82 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
 
 ---
 
+#### 8.3 个股 AI 评价
+
+基于新闻、业绩预测和最近交易数据自动生成个股影响评价，并写入 D1 数据库 `stock_analysis` 表。
+
+- **URL**: `/api/cn/stocks/:symbol/analysis`
+- **路径参数**:
+  - `symbol` — A 股股票代码（6位数字）
+- **方法**:
+  - `POST` — 触发一次新的 AI 评价，写入 D1 后返回本次结果
+  - `GET` — 获取该股票最近一次评价记录
+- **模型配置**:
+  - 请求地址：`OPENAI_API_BASE_URL`
+  - API Key：`OPENAI_API_KEY`
+  - 模型名：`EVA_MODEL`
+
+**自动输入数据来源**:
+- `news_text`: 财联社个股新闻前 5 条（标题、时间、摘要、链接）
+- `forecast_data`: 同花顺盈利预测接口中的 `摘要`
+- `trading_data`: 东方财富 `/api/cn/stock/quotes/activity` 同级别数据
+
+**请求示例**:
+
+```bash
+POST /api/cn/stocks/600519/analysis
+GET  /api/cn/stocks/600519/analysis
+```
+
+**POST 响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "来源": "AI 股票评价",
+    "模型": "gpt-4o-mini",
+    "分析ID": 12,
+    "股票代码": "600519",
+    "股票简称": "贵州茅台",
+    "分析时间": "2026-02-12 16:30:00",
+    "结论": "利好",
+    "核心逻辑": "......",
+    "风险提示": "......",
+    "输入摘要": {
+      "新闻数量": 5,
+      "业绩预测摘要": "机构预测公司盈利稳步提升......",
+      "交易数据": {
+        "股票代码": "600519",
+        "最新价": 1508.76
+      }
+    }
+  }
+}
+```
+
+**GET 响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "来源": "D1 历史分析",
+    "分析ID": 12,
+    "股票代码": "600519",
+    "股票简称": "贵州茅台",
+    "分析时间": "2026-02-12 16:30:00",
+    "结论": "利好",
+    "核心逻辑": "......",
+    "风险提示": "......"
+  }
+}
+```
+
+---
+
 ### 9. 新闻详情
 
 获取财联社新闻全文内容。
@@ -1366,6 +1445,9 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `FRONTEND_URL` | 前端首页地址（登录成功后默认跳转），例如 `https://aistocklink.cn` |
 | `COOKIE_DOMAIN` | Cookie 作用域，前后端跨子域时填父域，例如 `aistocklink.cn` |
 | `CORS_ALLOW_ORIGIN` | 允许的前端来源，例如 `https://aistocklink.cn` |
+| `OPENAI_API_BASE_URL` | 大模型接口地址（OpenAI 兼容 Chat Completions） |
+| `OPENAI_API_KEY` | 大模型接口密钥 |
+| `EVA_MODEL` | 个股评价使用的模型名 |
 
 设置方式：
 
@@ -1374,6 +1456,7 @@ wrangler secret put WECHAT_APPID
 wrangler secret put WECHAT_SECRET
 wrangler secret put JWT_SECRET
 wrangler secret put FRONTEND_URL
+wrangler secret put OPENAI_API_KEY
 # 可选，若不想放 secret：在 wrangler.toml 的 [vars] 写入 COOKIE_DOMAIN / CORS_ALLOW_ORIGIN
 ```
 
@@ -1385,7 +1468,7 @@ wrangler secret put FRONTEND_URL
 |------|------|
 | 400 | 参数错误（缺少 symbol 或格式不合法） |
 | 404 | 接口不存在 |
-| 405 | 请求方法不允许（仅支持 GET） |
+| 405 | 请求方法不允许（接口未实现该 HTTP 方法） |
 | 500 | 服务端错误 |
 
 **示例**:
@@ -1401,6 +1484,17 @@ wrangler secret put FRONTEND_URL
 ---
 
 ## 更新日志
+
+### 2026年2月12日
+- **新增功能**:
+  - 新增 RESTful 个股 AI 评价接口 `/api/cn/stocks/:symbol/analysis`：
+    - `POST` 触发实时分析（自动聚合新闻/预测/交易数据 → 调用大模型 → 写入 D1）
+    - `GET` 查询该股票最新一条分析记录
+  - 新增 `StockAnalysisService`，支持：
+    - 自动请求 `OPENAI_API_BASE_URL`，使用 `OPENAI_API_KEY` 鉴权
+    - 使用 `EVA_MODEL` 进行结构化评价输出
+    - 对模型返回 JSON 结构和字段约束做校验，不合规自动重试一次
+  - 新增 `stock_analysis` 表读写支持，保存字段：`结论`、`核心逻辑`、`风险提示`。
 
 ### 2026年2月11日
 - **新增功能**:
@@ -1468,7 +1562,7 @@ wrangler secret put FRONTEND_URL
 
 ## 数据库配置
 
-本项目使用 Cloudflare D1 数据库存储股票基础数据。
+本项目使用 Cloudflare D1 数据库存储股票基础数据和分析结果。
 
 ### 初始化 D1 数据库
 
@@ -1482,6 +1576,7 @@ wrangler d1 create aistock
 3. **初始化数据**: 
 ```bash
 wrangler d1 execute aistock --file=./scripts/stocks.sql
+wrangler d1 execute aistock --file=./scripts/stock_analysis.sql
 ```
 
 或使用提供的脚本一键初始化：

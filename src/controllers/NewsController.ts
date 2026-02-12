@@ -3,6 +3,7 @@ import { formatToChinaTime } from '../utils/datetime';
 import { Env } from '../index';
 import * as cheerio from 'cheerio';
 import { cailianpressThrottler } from '../utils/throttlers';
+import { ClsStockNewsService } from '../services/ClsStockNewsService';
 
 /**
  * 财联社新闻控制器
@@ -10,133 +11,13 @@ import { cailianpressThrottler } from '../utils/throttlers';
 export class NewsController {
     /** 财联社深度首页 API 基础 URL */
     private static readonly BASE_URL = 'https://www.cls.cn/v3/depth/home/assembled';
-    /** 财联社个股新闻检索 API */
-    private static readonly STOCK_NEWS_URL = 'https://www.cls.cn/api/csw?app=CailianpressWeb&os=web&sv=8.4.6&sign=9f8797a1f4de66c2370f7a03990d2737';
-    /** 财联社个股新闻请求头 */
-    private static readonly STOCK_NEWS_HEADERS = {
-        'Accept': 'application/json, text/plain, */*',
-        'Content-Type': 'application/json;charset=UTF-8',
-        'Origin': 'https://www.cls.cn',
-        'Referer': 'https://www.cls.cn/telegraph',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-    };
     /** 个股新闻默认返回条数 */
     private static readonly STOCK_NEWS_DEFAULT_LIMIT = 8;
     /** 个股新闻最大返回条数 */
     private static readonly STOCK_NEWS_MAX_LIMIT = 50;
-    /** 用于去除内容开头的【...】前缀 */
-    private static readonly BRACKET_PREFIX_PATTERN = /^【[^】]*】/;
-    
+
     /** 固定签名 */
     private static readonly SIGN = '9f8797a1f4de66c2370f7a03990d2737';
-
-    /**
-     * 将财联社时间戳格式化为中国时间（兼容秒/毫秒）
-     */
-    private static formatClsTimestamp(timestamp: unknown): string {
-        if (timestamp === null || timestamp === undefined) return '';
-        const tsNumber = Number(timestamp);
-        if (!Number.isFinite(tsNumber)) return '';
-        const ms = tsNumber < 1_000_000_000_000 ? tsNumber * 1000 : tsNumber;
-        return formatToChinaTime(ms);
-    }
-
-    /**
-     * 解析时间戳为 Unix 秒（兼容秒/毫秒）
-     */
-    private static parseTimestampSeconds(timestamp: unknown): number | null {
-        if (timestamp === null || timestamp === undefined) return null;
-        const tsNumber = Number(timestamp);
-        if (!Number.isFinite(tsNumber)) return null;
-        return tsNumber >= 1_000_000_000_000 ? Math.floor(tsNumber / 1000) : Math.floor(tsNumber);
-    }
-
-    /**
-     * 移除 HTML 标签、解码实体，并剔除开头【...】前缀
-     */
-    private static stripHtml(rawHtml: unknown): string {
-        if (typeof rawHtml !== 'string' || !rawHtml.trim()) return '';
-        const text = cheerio.load(rawHtml).text().trim();
-        return text.replace(this.BRACKET_PREFIX_PATTERN, '').trim();
-    }
-
-    /**
-     * 从电报 HTML 内容中提取标题与正文
-     */
-    private static extractTelegraphTitleAndContent(rawHtml: unknown): { title: string; content: string } {
-        if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
-            return { title: '', content: '' };
-        }
-
-        const $ = cheerio.load(rawHtml);
-        const title = ($('.detail-header').first().text() || '').trim();
-        const content = ($('.detail-telegraph-content').first().text() || '').trim();
-
-        return {
-            title: title.replace(this.BRACKET_PREFIX_PATTERN, '').trim(),
-            content: content.replace(this.BRACKET_PREFIX_PATTERN, '').trim(),
-        };
-    }
-
-    /**
-     * 从财联社接口响应中提取列表和总数
-     */
-    private static extractStockNewsEntries(payload: any): { entries: any[]; total: number | null } {
-        if (payload && typeof payload === 'object') {
-            if (Array.isArray(payload.list)) {
-                let total: number | null = null;
-                if (typeof payload.total === 'number' && Number.isFinite(payload.total)) {
-                    total = payload.total;
-                } else if (typeof payload.total === 'string' && /^\d+$/.test(payload.total)) {
-                    total = Number(payload.total);
-                }
-                return { entries: payload.list, total };
-            }
-            if ('data' in payload) {
-                return this.extractStockNewsEntries(payload.data);
-            }
-        }
-        return { entries: [], total: null };
-    }
-
-    /**
-     * 从 D1 中查股票简称，作为财联社检索关键词（若失败则退化为 symbol）
-     */
-    private static async resolveStockKeyword(symbol: string, env: Env): Promise<{ keyword: string; stockName: string }> {
-        try {
-            const row = await env.DB
-                .prepare('SELECT name FROM stocks WHERE symbol = ? LIMIT 1')
-                .bind(symbol)
-                .first<{ name: string }>();
-
-            const stockName = (row?.name || '').trim();
-            return {
-                keyword: stockName || symbol,
-                stockName,
-            };
-        } catch {
-            return {
-                keyword: symbol,
-                stockName: '',
-            };
-        }
-    }
-
-    /**
-     * 从 schema 中提取新闻链接
-     * schema 格式: "cailianshe://article_detail?article_id=2285089"
-     */
-    private static extractNewsLink(schema: string): string {
-        if (!schema) return '';
-        
-        // 提取 article_id= 后的 ID
-        const match = schema.match(/article_id=(\d+)/);
-        if (match && match[1]) {
-            return `https://www.cls.cn/detail/${match[1]}`;
-        }
-        
-        return '';
-    }
 
     /**
      * 通用获取新闻方法
@@ -278,78 +159,28 @@ export class NewsController {
         }
 
         try {
-            const { keyword, stockName } = await this.resolveStockKeyword(symbol, env);
-            const payload = {
-                'lastTime': lastTime,
-                'keyword': keyword,
-                'category': '',
-                'os': 'web',
-                'sv': '8.4.6',
-                'app': 'CailianpressWeb',
-            };
-
-            // 限流 (财联社)
-            await cailianpressThrottler.throttle();
-
-            const response = await fetch(this.STOCK_NEWS_URL, {
-                method: 'POST',
-                headers: this.STOCK_NEWS_HEADERS,
-                body: JSON.stringify(payload),
+            const result = await ClsStockNewsService.getStockNews(symbol, env, {
+                limit,
+                lastTime,
             });
 
-            if (!response.ok) {
-                throw new Error(`财联社个股新闻接口请求失败: ${response.status}`);
-            }
-
-            let rawData: any = null;
-            try {
-                rawData = await response.json();
-            } catch {
-                throw new Error('Failed to decode JSON response');
-            }
-
-            if (typeof rawData?.errno === 'number' && rawData.errno !== 0) {
-                throw new Error(`财联社接口返回错误: ${rawData.msg || 'Unknown error'}`);
-            }
-
-            const { entries, total } = this.extractStockNewsEntries(rawData);
-            const normalizedItems: Record<string, any>[] = [];
-
-            for (const entry of entries) {
-                if (!entry || typeof entry !== 'object') continue;
-                const entryCtimeSec = this.parseTimestampSeconds(entry.ctime);
-                // 与 limit 取交集：先按 lastTime 过滤，再限制条数
-                if (entryCtimeSec === null || entryCtimeSec < lastTime) {
-                    continue;
-                }
-
-                const entryId = entry.id;
-                const parsedFromHtml = this.extractTelegraphTitleAndContent(entry.content);
-                const title = (typeof entry.title === 'string' ? entry.title.trim() : '') || parsedFromHtml.title;
-                const content = parsedFromHtml.content || this.stripHtml(entry.content);
-
-                normalizedItems.push({
-                    'ID': entryId || '',
-                    '链接': entryId ? `https://www.cls.cn/detail/${entryId}` : '',
-                    '标题': title,
-                    '时间': this.formatClsTimestamp(entry.ctime),
-                    '内容': content,
-                });
-
-                if (normalizedItems.length >= limit) {
-                    break;
-                }
-            }
+            const normalizedItems = result.items.map(item => ({
+                'ID': item.id,
+                '链接': item.link,
+                '标题': item.title,
+                '时间': item.time,
+                '内容': item.content,
+            }));
 
             return createResponse(200, 'success', {
                 '来源': '财联社',
                 '股票代码': symbol,
-                '股票简称': stockName,
-                '查询关键词': keyword,
+                '股票简称': result.stockName,
+                '查询关键词': result.keyword,
                 '更新时间': formatToChinaTime(Date.now()),
                 'lastTime': lastTime,
                 '新闻数量': normalizedItems.length,
-                '总数量': total ?? normalizedItems.length,
+                '总数量': result.total ?? normalizedItems.length,
                 '个股新闻': normalizedItems,
             });
         } catch (error: any) {
