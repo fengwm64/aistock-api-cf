@@ -38,8 +38,8 @@ export interface Env {
     EVA_MODEL: string;
 }
 
-/** 带 symbol 参数的路由 */
-type SymbolRouteHandler = (symbol: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
+/** 带 symbol 参数且支持查询参数的路由 */
+type SymbolRouteHandler = (symbol: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 
 /** 带数字 ID 参数的路由 */
 type IdRouteHandler = (id: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
@@ -176,7 +176,7 @@ export default {
                     if (!isValidAShareSymbol(symbol)) {
                         return withCors(createResponse(400, 'Invalid symbol - A股代码必须是6位数字'), request, env);
                     }
-                    return withCors(await handler(symbol, env, ctx), request, env);
+                    return withCors(await handler(symbol, request, env, ctx), request, env);
                 }
             }
 

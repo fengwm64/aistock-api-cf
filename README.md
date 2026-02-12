@@ -696,6 +696,8 @@ GET /api/cn/stock/fundamentals?symbols=000001,600519
 获取机构对股票的盈利预测数据（仅返回摘要与详细指标预测），采用“先查 D1，未命中再爬取并写回 D1”的流程。
 
 - **URL**: `/api/cn/stock/profit-forecast/:symbol`
+- **查询参数**:
+  - `forceRefresh`（可选）— 设为 `1/true` 时跳过 D1，强制重新抓取并写入 D1
 - **缓存/持久化**: D1 `earnings_forecast`（`symbol + update_time` 复合主键）
   - 先查 D1 最新记录
   - 未命中时爬取同花顺并写入 D1
@@ -704,6 +706,7 @@ GET /api/cn/stock/fundamentals?symbols=000001,600519
 
 ```
 GET /api/cn/stock/profit-forecast/600519
+GET /api/cn/stock/profit-forecast/600519?forceRefresh=1
 ```
 
 **响应示例**:
@@ -1112,9 +1115,11 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
 - **URL**: `/api/cn/stocks/:symbol/analysis`
 - **路径参数**:
   - `symbol` — A 股股票代码（6位数字）
+- **查询参数**:
+  - `forceRefresh`（可选）— 设为 `1/true` 时强制重新生成评价并写入 D1
 - **方法**:
   - `POST` — 触发一次新的 AI 评价，写入 D1 后返回本次结果
-  - `GET` — 获取该股票最近一次评价记录
+  - `GET` — 获取该股票最近一次评价记录；若数据库中无记录会自动触发一次评价并返回
 - **模型配置**:
   - 请求地址：`OPENAI_API_BASE_URL`
   - API Key：`OPENAI_API_KEY`
@@ -1130,6 +1135,7 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
 ```bash
 POST /api/cn/stocks/600519/analysis
 GET  /api/cn/stocks/600519/analysis
+GET  /api/cn/stocks/600519/analysis?forceRefresh=1
 ```
 
 **POST 响应示例**:

@@ -1,5 +1,6 @@
 import { ThsService } from '../services/ThsService';
 import { createResponse } from '../utils/response';
+import { getBooleanQueryParam } from '../utils/query';
 import { Env } from '../index';
 
 interface EarningsForecastRow {
@@ -40,34 +41,37 @@ export class ProfitForecastController {
         return [];
     }
 
-    static async getThsForecast(symbol: string, env: Env, ctx: ExecutionContext) {
+    static async getThsForecast(symbol: string, request: Request, env: Env, ctx: ExecutionContext) {
         if (!symbol) {
             return createResponse(400, '缺少 symbol 参数');
         }
 
+        const forceRefresh = getBooleanQueryParam(request, ['forceRefresh', 'force_refresh', 'refresh']);
         const source = `同花顺 https://basic.10jqka.com.cn/new/${symbol}/worth.html`;
 
         try {
-            // 先查 D1：命中则直接返回
-            const latest = await env.DB
-                .prepare(
-                    `SELECT update_time, summary, forecast_detail
-                     FROM earnings_forecast
-                     WHERE symbol = ?1
-                     ORDER BY update_time DESC
-                     LIMIT 1`
-                )
-                .bind(symbol)
-                .first<EarningsForecastRow>();
+            if (!forceRefresh) {
+                // 先查 D1：命中则直接返回
+                const latest = await env.DB
+                    .prepare(
+                        `SELECT update_time, summary, forecast_detail
+                         FROM earnings_forecast
+                         WHERE symbol = ?1
+                         ORDER BY update_time DESC
+                         LIMIT 1`
+                    )
+                    .bind(symbol)
+                    .first<EarningsForecastRow>();
 
-            if (latest) {
-                return createResponse(200, 'success (d1)', {
-                    '股票代码': symbol,
-                    '来源': source,
-                    '更新时间': latest.update_time,
-                    '摘要': latest.summary || '',
-                    '业绩预测详表_详细指标预测': this.parseForecastDetail(latest.forecast_detail),
-                });
+                if (latest) {
+                    return createResponse(200, 'success (d1)', {
+                        '股票代码': symbol,
+                        '来源': source,
+                        '更新时间': latest.update_time,
+                        '摘要': latest.summary || '',
+                        '业绩预测详表_详细指标预测': this.parseForecastDetail(latest.forecast_detail),
+                    });
+                }
             }
 
             // D1 未命中：爬取并写入 D1
@@ -91,7 +95,7 @@ export class ProfitForecastController {
                 )
                 .run();
 
-            return createResponse(200, 'success', {
+            return createResponse(200, forceRefresh ? 'success (refresh)' : 'success', {
                 '股票代码': symbol,
                 '来源': source,
                 '更新时间': updateTime,
