@@ -693,23 +693,48 @@ GET /api/cn/stock/fundamentals?symbols=000001,600519
 
 ### 5. 盈利预测
 
-获取机构对股票的盈利预测数据（仅返回摘要与详细指标预测），采用“先查 D1，未命中再爬取并写回 D1”的流程。
+盈利预测数据存储在 D1 `earnings_forecast` 表。由于一个 `symbol` 可能有多条不同 `update_time` 记录，列表/检索接口均只使用每个 `symbol` 的最新记录。
 
-- **URL**: `/api/cn/stock/profit-forecast/:symbol`
+#### 5.1 盈利预测分页列表
+
+- **URL**: `/api/cn/stocks/profit-forecast`
+- **查询参数**:
+  - `page`（可选）— 页码，默认 `1`
+  - `pageSize`（可选）— 每页数量，默认 `50`，最大 `500`
+  - `sortBy`（可选）— 排序字段：`symbol` / `forecast_netprofit_yoy`，默认 `forecast_netprofit_yoy`
+  - `sortOrder`（可选）— 排序方向：`asc` / `desc`
+    - 当 `sortBy=symbol` 时默认 `asc`
+    - 当 `sortBy=forecast_netprofit_yoy` 时默认 `desc`
+
+```
+GET /api/cn/stocks/profit-forecast?page=1&pageSize=20&sortBy=forecast_netprofit_yoy&sortOrder=desc
+```
+
+#### 5.2 盈利预测检索
+
+- **URL**: `/api/cn/stocks/profit-forecast/search`
+- **查询参数**:
+  - `keyword` 或 `q`（必填）— 关键词（支持股票代码/股票简称/摘要模糊匹配）
+  - `page`、`pageSize`、`sortBy`、`sortOrder` 与分页列表一致
+
+```
+GET /api/cn/stocks/profit-forecast/search?keyword=平安&page=1&pageSize=10&sortBy=symbol
+```
+
+#### 5.3 单只股票盈利预测
+
+获取单只股票的盈利预测详情（摘要 + 详细指标预测），采用“先查 D1，未命中再爬取并写回 D1”的流程。
+
+- **URL**: `/api/cn/stock/:symbol/profit-forecast`
 - **查询参数**:
   - `forceRefresh`（可选）— 设为 `1/true` 时跳过 D1，强制重新抓取并写入 D1
-- **缓存/持久化**: D1 `earnings_forecast`（`symbol + update_time` 复合主键）
-  - 先查 D1 最新记录
-  - 未命中时爬取同花顺并写入 D1
-
-**请求示例**:
 
 ```
-GET /api/cn/stock/profit-forecast/600519
-GET /api/cn/stock/profit-forecast/600519?forceRefresh=1
+GET /api/cn/stock/600519/profit-forecast
+GET /api/cn/stock/600519/profit-forecast?forceRefresh=1
 ```
 
-**响应示例**:
+**单票响应示例**:
 
 ```json
 {
@@ -719,6 +744,7 @@ GET /api/cn/stock/profit-forecast/600519?forceRefresh=1
     "来源": "同花顺 https://basic.10jqka.com.cn/new/600519/worth.html",
     "股票代码": "600519",
     "更新时间": "2026-02-08 10:30:00",
+    "净利润同比(%)": 12.36,
     "摘要": "综合机构预测，未来 2 年公司盈利保持增长，估值处于历史中位区间。",
     "业绩预测详表_详细指标预测": [
       {

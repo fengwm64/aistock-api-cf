@@ -38,9 +38,6 @@ export interface Env {
     EVA_MODEL: string;
 }
 
-/** 带 symbol 参数且支持查询参数的路由 */
-type SymbolRouteHandler = (symbol: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
-
 /** 带数字 ID 参数的路由 */
 type IdRouteHandler = (id: string, env: Env, ctx: ExecutionContext) => Promise<Response>;
 
@@ -51,10 +48,6 @@ type SimpleRouteHandler = (env: Env, ctx: ExecutionContext) => Promise<Response>
 type QueryRouteHandler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 /** 路径中携带 symbol，且带查询参数的路由 */
 type SymbolQueryRouteHandler = (symbol: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
-
-const symbolRoutes: [string, SymbolRouteHandler][] = [
-    ['/api/cn/stock/profit-forecast/', ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
-];
 
 const idRoutes: [string, IdRouteHandler][] = [
     ['/api/news/', NewsController.getNewsDetail.bind(NewsController)],
@@ -85,6 +78,8 @@ const queryRoutes: [string, QueryRouteHandler][] = [
     ['/api/cn/stock/quotes/activity', StockQuoteController.getActivityQuotes.bind(StockQuoteController)],
     ['/api/cn/stock/quotes/kline', StockQuoteController.getKLine.bind(StockQuoteController)],
     ['/api/cn/stock/fundamentals', StockQuoteController.getFundamentalQuotes.bind(StockQuoteController)],
+    ['/api/cn/stocks/profit-forecast', ProfitForecastController.getForecastList.bind(ProfitForecastController)],
+    ['/api/cn/stocks/profit-forecast/search', ProfitForecastController.searchForecastList.bind(ProfitForecastController)],
     ['/api/cn/index/quotes', IndexQuoteController.getIndexQuotes.bind(IndexQuoteController)],
     ['/api/gb/index/quotes', IndexQuoteController.getGlobalIndexQuotes.bind(IndexQuoteController)],
 ];
@@ -92,6 +87,7 @@ const queryRoutes: [string, QueryRouteHandler][] = [
 const symbolQueryRoutes: [RegExp, SymbolQueryRouteHandler][] = [
     [/^\/api\/cn\/stocks\/([0-9]{6})\/news\/?$/, NewsController.getStockNews.bind(NewsController)],
     [/^\/api\/cn\/stocks\/([0-9]{6})\/analysis\/?$/, StockAnalysisController.handleStockAnalysis.bind(StockAnalysisController)],
+    [/^\/api\/cn\/stock\/([0-9]{6})\/profit-forecast\/?$/, ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
 ];
 
 function getCorsOrigin(request: Request, env: Env): string | null {
@@ -166,20 +162,6 @@ export default {
                 }
             }
 
-            // 带 symbol 参数路由
-            for (const [prefix, handler] of symbolRoutes) {
-                if (pathname.startsWith(prefix)) {
-                    const symbol = pathname.slice(prefix.length).replace(/\/+$/, '');
-                    if (!symbol) {
-                        return withCors(createResponse(400, '缺少 symbol 参数'), request, env);
-                    }
-                    if (!isValidAShareSymbol(symbol)) {
-                        return withCors(createResponse(400, 'Invalid symbol - A股代码必须是6位数字'), request, env);
-                    }
-                    return withCors(await handler(symbol, request, env, ctx), request, env);
-                }
-            }
-
             // 带数字 ID 参数路由
             for (const [prefix, handler] of idRoutes) {
                 if (pathname.startsWith(prefix)) {
@@ -194,7 +176,7 @@ export default {
                 }
             }
 
-            return withCors(createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stocks/:symbol/news, /api/cn/stocks/:symbol/analysis, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/quotes/kline, /api/cn/stock/fundamentals, /api/cn/stock/profit-forecast/:symbol, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id'), request, env);
+            return withCors(createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stocks/profit-forecast, /api/cn/stocks/profit-forecast/search, /api/cn/stocks/:symbol/news, /api/cn/stocks/:symbol/analysis, /api/cn/stock/:symbol/profit-forecast, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/quotes/kline, /api/cn/stock/fundamentals, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id'), request, env);
         } catch (err: any) {
             return withCors(createResponse(500, err instanceof Error ? err.message : 'Internal Server Error'), request, env);
         }
