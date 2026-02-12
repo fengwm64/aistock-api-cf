@@ -33,8 +33,6 @@ export class ThsService {
         const arrayBuffer = await response.arrayBuffer();
         const html = new TextDecoder('gbk').decode(arrayBuffer);
 
-        const hasNoPrediction = html.includes('本年度暂无机构做出业绩预测');
-
         // 剥离 script / style / HTML 注释，大幅缩减 cheerio 需要解析的 DOM 树
         const cleanHtml = html
             .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -45,27 +43,23 @@ export class ThsService {
 
         const result: Record<string, any> = {
             '摘要': '',
-            '预测年报每股收益': [],
-            '预测年报净利润': [],
-            '业绩预测详表_机构': [],
             '业绩预测详表_详细指标预测': [],
         };
 
         // 摘要
         result['摘要'] = $('#forecast > div.bd > p.tip.clearfix').text().trim().replace(/\s+/g, ' ');
 
-        // 预测年报每股收益 + 预测年报净利润
-        if (!hasNoPrediction) {
-            const epsTable = $('#forecast > div.bd > div.clearfix > div.fl.yjyc > table');
-            if (epsTable.length > 0) result['预测年报每股收益'] = parseTable($, epsTable[0], '预测年报每股收益');
-
-            const profitTable = $('#forecast > div.bd > div.clearfix > div.fr.yjyc > table');
-            if (profitTable.length > 0) result['预测年报净利润'] = parseTable($, profitTable[0], '预测年报净利润');
-        }
-
-        // 业绩预测详表_机构
-        const instTable = $('#forecastdetail > div.bd > table.m_table.m_hl.posi_table');
-        if (instTable.length > 0) result['业绩预测详表_机构'] = parseTable($, instTable[0], '业绩预测详表-机构');
+        // 已按需求停用以下解析，仅保留“摘要 + 业绩预测详表_详细指标预测”
+        // const hasNoPrediction = html.includes('本年度暂无机构做出业绩预测');
+        // if (!hasNoPrediction) {
+        //     const epsTable = $('#forecast > div.bd > div.clearfix > div.fl.yjyc > table');
+        //     if (epsTable.length > 0) result['预测年报每股收益'] = parseTable($, epsTable[0], '预测年报每股收益');
+        //
+        //     const profitTable = $('#forecast > div.bd > div.clearfix > div.fr.yjyc > table');
+        //     if (profitTable.length > 0) result['预测年报净利润'] = parseTable($, profitTable[0], '预测年报净利润');
+        // }
+        // const instTable = $('#forecastdetail > div.bd > table.m_table.m_hl.posi_table');
+        // if (instTable.length > 0) result['业绩预测详表_机构'] = parseTable($, instTable[0], '业绩预测详表-机构');
 
         // 业绩预测详表_详细指标预测
         const detailTable = $('#forecastdetail > div.bd > table.m_table.m_hl.ggintro.ggintro_1.organData');
