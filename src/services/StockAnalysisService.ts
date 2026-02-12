@@ -1,4 +1,3 @@
-import { formatToChinaTime } from '../utils/datetime';
 import { EmQuoteService } from './EmQuoteService';
 import { ThsService } from './ThsService';
 import { ClsStockNewsService } from './ClsStockNewsService';
@@ -20,7 +19,6 @@ interface StockAnalysisResult {
 }
 
 interface StockAnalysisRow {
-    id: number;
     symbol: string;
     stock_name: string | null;
     analysis_time: string;
@@ -106,6 +104,21 @@ JSON 结构如下：
         const chars = Array.from(text);
         if (chars.length <= max) return text;
         return chars.slice(0, max).join('') + '...';
+    }
+
+    /**
+     * 生成中国时区时间（带毫秒），避免同一秒内重复插入触发复合主键冲突
+     */
+    private static formatToChinaTimeWithMs(timestamp: number): string {
+        const date = new Date(timestamp);
+        const utc8Time = date.getTime() + (date.getTimezoneOffset() * 60000) + (8 * 3600000);
+        const d = new Date(utc8Time);
+
+        const pad2 = (n: number) => n.toString().padStart(2, '0');
+        const pad3 = (n: number) => n.toString().padStart(3, '0');
+
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+            `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
     }
 
     private static sanitizeModelJsonText(raw: string): string {
@@ -311,7 +324,6 @@ JSON 结构如下：
 
     private static mapAnalysisRow(row: StockAnalysisRow): Record<string, any> {
         return {
-            '分析ID': row.id,
             '股票代码': row.symbol,
             '股票简称': row.stock_name || '',
             '分析时间': row.analysis_time,
@@ -346,9 +358,9 @@ JSON 结构如下：
         const tradingText = JSON.stringify(tradingData, null, 2);
 
         const modelResult = await this.generateStockAnalysis(newsText, forecastData, tradingText, env);
-        const analysisTime = formatToChinaTime(Date.now());
+        const analysisTime = this.formatToChinaTimeWithMs(Date.now());
 
-        const insertResult = await env.DB
+        await env.DB
             .prepare(
                 `INSERT INTO stock_analysis
                     (symbol, analysis_time, conclusion, core_logic, risk_warning)
@@ -364,36 +376,15 @@ JSON 结构如下：
             )
             .run();
 
-        const insertedId = Number(insertResult.meta?.last_row_id || 0);
-        const row = insertedId > 0
-            ? await env.DB
-                .prepare(
-                    `SELECT a.id, a.symbol, s.name AS stock_name, a.analysis_time, a.conclusion, a.core_logic, a.risk_warning
-                     FROM stock_analysis a
-                     LEFT JOIN stocks s ON s.symbol = a.symbol
-                     WHERE a.id = ?1
-                     LIMIT 1`
-                )
-                .bind(insertedId)
-                .first<StockAnalysisRow>()
-            : null;
-
-        const mapped = row
-            ? this.mapAnalysisRow(row)
-            : {
-                '分析ID': insertedId || 0,
-                '股票代码': symbol,
-                '股票简称': stockName,
-                '分析时间': analysisTime,
-                '结论': modelResult['结论'],
-                '核心逻辑': modelResult['核心逻辑'],
-                '风险提示': modelResult['风险提示'],
-            };
-
         return {
             '来源': 'AI 股票评价',
             '模型': env.EVA_MODEL,
-            ...mapped,
+            '股票代码': symbol,
+            '股票简称': stockName,
+            '分析时间': analysisTime,
+            '结论': modelResult['结论'],
+            '核心逻辑': modelResult['核心逻辑'],
+            '风险提示': modelResult['风险提示'],
             '输入摘要': {
                 '新闻数量': newsList.length,
                 '业绩预测摘要': forecastData,
@@ -405,11 +396,11 @@ JSON 结构如下：
     static async getLatestStockAnalysis(symbol: string, env: Env): Promise<Record<string, any> | null> {
         const row = await env.DB
             .prepare(
-                `SELECT a.id, a.symbol, s.name AS stock_name, a.analysis_time, a.conclusion, a.core_logic, a.risk_warning
+                `SELECT a.symbol, s.name AS stock_name, a.analysis_time, a.conclusion, a.core_logic, a.risk_warning
                  FROM stock_analysis a
                  LEFT JOIN stocks s ON s.symbol = a.symbol
                  WHERE a.symbol = ?1
-                 ORDER BY a.id DESC
+                 ORDER BY a.analysis_time DESC
                  LIMIT 1`
             )
             .bind(symbol)
