@@ -1,6 +1,7 @@
 import { EmQuoteService } from './EmQuoteService';
 import { ThsService } from './ThsService';
 import { ClsStockNewsService } from './ClsStockNewsService';
+import { formatToChinaTime } from '../utils/datetime';
 import type { Env } from '../index';
 
 type AnalysisConclusion = '重大利好' | '利好' | '中性' | '利空' | '重大利空';
@@ -38,7 +39,7 @@ export class StockAnalysisService {
     private static readonly ANALYSIS_PROMPT_TEMPLATE = `你是一名专业金融分析师，请基于以下信息判断其对该个股的影响。
 
 【分析目标】
-综合新闻内容、业绩预测数据以及最近交易数据，判断整体影响。
+综合新闻内容、业绩预测数据以及最近交易数据，判断对{today}以后该股票走势整体影响。
 
 【结论分类】
 只能选择以下五种之一：
@@ -104,6 +105,10 @@ JSON 结构如下：
         const chars = Array.from(text);
         if (chars.length <= max) return text;
         return chars.slice(0, max).join('') + '...';
+    }
+
+    private static getTodayInChina(): string {
+        return formatToChinaTime(Date.now()).slice(0, 10);
     }
 
     /**
@@ -226,8 +231,9 @@ JSON 结构如下：
         )).join('\n\n');
     }
 
-    private static buildPrompt(newsText: string, forecastData: string, tradingData: string): string {
+    private static buildPrompt(newsText: string, forecastData: string, tradingData: string, today: string): string {
         return this.ANALYSIS_PROMPT_TEMPLATE
+            .replace('{today}', today)
             .replace('{news_text}', newsText)
             .replace('{forecast_data}', forecastData)
             .replace('{trading_data}', tradingData);
@@ -290,12 +296,13 @@ JSON 结构如下：
 
     private static async generateStockAnalysis(newsText: string, forecastData: string, tradingData: string, env: Env): Promise<StockAnalysisResult> {
         let lastError = '模型返回格式异常';
+        const today = this.getTodayInChina();
 
         for (let attempt = 1; attempt <= 2; attempt++) {
             const correction = attempt === 1
                 ? ''
                 : `\n\n【上次输出问题】\n${lastError}\n请严格修正并仅输出 JSON。`;
-            const prompt = this.buildPrompt(newsText, forecastData, tradingData) + correction;
+            const prompt = this.buildPrompt(newsText, forecastData, tradingData, today) + correction;
 
             const raw = await this.requestModel(prompt, env);
             const parsed = this.parseModelResult(raw);
