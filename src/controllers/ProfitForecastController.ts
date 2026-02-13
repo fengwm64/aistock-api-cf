@@ -322,7 +322,7 @@ export class ProfitForecastController {
                   AND (
                        l.symbol LIKE ?1
                    OR COALESCE(s.name, '') LIKE ?1
-                   OR COALESCE(l.summary, '') LIKE ?1
+                   OR COALESCE(s.pinyin, '') LIKE ?1
                   )`;
             const countResult = await session.prepare(countQuery).bind(keywordPattern).first<{ total: number }>();
             const total = countResult?.total || 0;
@@ -336,7 +336,7 @@ export class ProfitForecastController {
                   AND (
                        l.symbol LIKE ?1
                    OR COALESCE(s.name, '') LIKE ?1
-                   OR COALESCE(l.summary, '') LIKE ?1
+                   OR COALESCE(s.pinyin, '') LIKE ?1
                   )
                 ORDER BY ${orderBy}
                 LIMIT ?2 OFFSET ?3`;

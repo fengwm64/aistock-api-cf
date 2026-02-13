@@ -715,7 +715,7 @@ GET /api/cn/stocks/profit-forecast?page=1&pageSize=20&sortBy=forecast_netprofit_
 
 - **URL**: `/api/cn/stocks/profit-forecast/search`
 - **查询参数**:
-  - `keyword` 或 `q`（必填）— 关键词（支持股票代码/股票简称/摘要模糊匹配）
+  - `keyword` 或 `q`（必填）— 关键词（支持股票代码/股票简称/拼音首字母模糊匹配）
   - `page`、`pageSize`、`sortBy`、`sortOrder` 与分页列表一致
 
 ```
