@@ -5,6 +5,11 @@ export interface StockOcrItem {
     '股票代码': string;
 }
 
+interface StockLookupRow {
+    symbol: string;
+    name: string;
+}
+
 export type StockOcrImageDetail = 'low' | 'high' | 'auto';
 
 export interface StockOcrOptions {
@@ -25,6 +30,9 @@ export class StockOcrService {
     private static readonly MAX_IMAGES = 8;
     private static readonly MAX_IMAGES_PER_REQUEST = 4;
     private static readonly MAX_BATCH_CONCURRENCY = 4;
+    private static readonly MAX_CODES_PER_QUERY = 200;
+    private static readonly MAX_NAMES_PER_QUERY = 200;
+    private static readonly MAX_NAME_LOOKUP_CONCURRENCY = 4;
     private static readonly MAX_BASE64_CHARS = 6_000_000;
     private static readonly DEFAULT_MIME = 'image/png';
     private static readonly DEFAULT_IMAGE_DETAIL: StockOcrImageDetail = 'low';
@@ -82,6 +90,17 @@ export class StockOcrService {
         const match = cleaned.match(/\d{6}/);
         if (match) return match[0];
         return cleaned.replace(/\s+/g, '').toUpperCase();
+    }
+
+    private static isValidStockCode(code: string): boolean {
+        return /^\d{6}$/.test(code);
+    }
+
+    private static escapeLike(value: string): string {
+        return value
+            .replace(/\\/g, '\\\\')
+            .replace(/%/g, '\\%')
+            .replace(/_/g, '\\_');
     }
 
     private static parseItemFromString(raw: string): StockOcrItem | null {
@@ -146,6 +165,197 @@ export class StockOcrService {
         }
 
         return result;
+    }
+
+    private static extractUniqueCodes(recognized: StockOcrItem[][]): string[] {
+        const codes = new Set<string>();
+        for (const list of recognized) {
+            for (const item of list) {
+                const code = this.normalizeStockCode(item['股票代码']);
+                if (this.isValidStockCode(code)) {
+                    codes.add(code);
+                }
+            }
+        }
+        return Array.from(codes);
+    }
+
+    private static async fetchStocksByCodes(codes: string[], env: Env): Promise<Map<string, StockLookupRow>> {
+        const result = new Map<string, StockLookupRow>();
+        if (codes.length === 0) return result;
+
+        for (let i = 0; i < codes.length; i += this.MAX_CODES_PER_QUERY) {
+            const chunk = codes.slice(i, i + this.MAX_CODES_PER_QUERY);
+            if (chunk.length === 0) continue;
+
+            const placeholders = chunk.map(() => '?').join(',');
+            const sql = `SELECT symbol, name FROM stocks WHERE symbol IN (${placeholders})`;
+            const queryResult = await env.DB.prepare(sql).bind(...chunk).all<StockLookupRow>();
+
+            for (const row of queryResult.results || []) {
+                const symbol = this.normalizeStockCode(row.symbol);
+                if (!this.isValidStockCode(symbol)) continue;
+                result.set(symbol, {
+                    symbol,
+                    name: this.normalizeText(row.name),
+                });
+            }
+        }
+
+        return result;
+    }
+
+    private static async fetchStocksByExactNames(names: string[], env: Env): Promise<Map<string, StockLookupRow>> {
+        const result = new Map<string, StockLookupRow>();
+        if (names.length === 0) return result;
+
+        for (let i = 0; i < names.length; i += this.MAX_NAMES_PER_QUERY) {
+            const chunk = names.slice(i, i + this.MAX_NAMES_PER_QUERY);
+            if (chunk.length === 0) continue;
+
+            const placeholders = chunk.map(() => '?').join(',');
+            const sql = `SELECT symbol, name FROM stocks WHERE name IN (${placeholders}) ORDER BY symbol`;
+            const queryResult = await env.DB.prepare(sql).bind(...chunk).all<StockLookupRow>();
+
+            for (const row of queryResult.results || []) {
+                const normalizedName = this.normalizeText(row.name);
+                const symbol = this.normalizeStockCode(row.symbol);
+                if (!normalizedName || !this.isValidStockCode(symbol)) continue;
+                if (!result.has(normalizedName)) {
+                    result.set(normalizedName, {
+                        symbol,
+                        name: normalizedName,
+                    });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static async fuzzyFindStockByName(name: string, env: Env): Promise<StockLookupRow | null> {
+        const normalizedName = this.normalizeText(name);
+        if (!normalizedName) return null;
+
+        const pattern = `%${this.escapeLike(normalizedName)}%`;
+        const row = await env.DB
+            .prepare("SELECT symbol, name FROM stocks WHERE name LIKE ?1 ESCAPE '\\' OR pinyin LIKE ?1 ESCAPE '\\' ORDER BY symbol LIMIT 1")
+            .bind(pattern)
+            .first<StockLookupRow>();
+
+        if (!row) return null;
+
+        const symbol = this.normalizeStockCode(row.symbol);
+        if (!this.isValidStockCode(symbol)) return null;
+
+        return {
+            symbol,
+            name: this.normalizeText(row.name),
+        };
+    }
+
+    private static async resolveNameLookups(names: string[], env: Env): Promise<Map<string, StockLookupRow | null>> {
+        const normalizedNames = Array.from(new Set(
+            names
+                .map(name => this.normalizeText(name))
+                .filter(Boolean),
+        ));
+
+        const result = new Map<string, StockLookupRow | null>();
+        if (normalizedNames.length === 0) return result;
+
+        const exactMap = await this.fetchStocksByExactNames(normalizedNames, env);
+        for (const name of normalizedNames) {
+            result.set(name, exactMap.get(name) || null);
+        }
+
+        const unresolved = normalizedNames.filter(name => !exactMap.has(name));
+        if (unresolved.length === 0) return result;
+
+        const jobs = unresolved.map((name) => async () => ({
+            name,
+            row: await this.fuzzyFindStockByName(name, env),
+        }));
+        const fuzzyResults = await this.runWithConcurrency(jobs, this.MAX_NAME_LOOKUP_CONCURRENCY);
+
+        for (const item of fuzzyResults) {
+            result.set(item.name, item.row);
+        }
+
+        return result;
+    }
+
+    private static async normalizeByStocks(recognized: StockOcrItem[][], env: Env): Promise<StockOcrItem[][]> {
+        const allCodes = this.extractUniqueCodes(recognized);
+        const codeMap = await this.fetchStocksByCodes(allCodes, env);
+        const namesToResolve: string[] = [];
+
+        for (const list of recognized) {
+            for (const item of list) {
+                const rawName = this.normalizeText(item['股票简称']);
+                const rawCode = this.normalizeStockCode(item['股票代码']);
+                const hasCode = this.isValidStockCode(rawCode);
+                if (!rawName) continue;
+                if (!hasCode || !codeMap.has(rawCode)) {
+                    namesToResolve.push(rawName);
+                }
+            }
+        }
+
+        const nameLookupMap = await this.resolveNameLookups(namesToResolve, env);
+
+        const output: StockOcrItem[][] = [];
+        for (const list of recognized) {
+            const normalizedList: StockOcrItem[] = [];
+            const seen = new Set<string>();
+
+            for (const item of list) {
+                const rawName = this.normalizeText(item['股票简称']);
+                const rawCode = this.normalizeStockCode(item['股票代码']);
+
+                let finalName = rawName;
+                let finalCode = this.isValidStockCode(rawCode) ? rawCode : '';
+
+                if (finalCode) {
+                    const byCode = codeMap.get(finalCode);
+                    if (byCode) {
+                        // 强制使用数据库标准名称覆盖 OCR 名称
+                        finalName = byCode.name;
+                    } else if (rawName) {
+                        const byName = nameLookupMap.get(rawName) || null;
+                        if (byName) {
+                            finalCode = byName.symbol;
+                            finalName = byName.name;
+                        }
+                    }
+                } else if (rawName) {
+                    const byName = nameLookupMap.get(rawName) || null;
+                    if (byName) {
+                        finalCode = byName.symbol;
+                        finalName = byName.name;
+                    }
+                } else {
+                    continue;
+                }
+
+                const safeName = this.normalizeText(finalName);
+                const safeCode = this.normalizeStockCode(finalCode);
+                if (!safeName && !safeCode) continue;
+
+                const key = safeCode ? `code:${safeCode}` : `name:${safeName}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+
+                normalizedList.push({
+                    '股票简称': safeName,
+                    '股票代码': safeCode,
+                });
+            }
+
+            output.push(normalizedList);
+        }
+
+        return output;
     }
 
     static normalizeImages(inputs: unknown[]): string[] {
@@ -427,7 +637,7 @@ export class StockOcrService {
         const batches = this.splitIntoBatches(imageUrls, resolved.maxImagesPerRequest);
         const jobs = batches.map((batch) => async () => this.generateOcrResult(batch, env, hint, resolved));
         const batchResults = await this.runWithConcurrency(jobs, resolved.batchConcurrency);
-
-        return batchResults.flat();
+        const recognized = batchResults.flat();
+        return this.normalizeByStocks(recognized, env);
     }
 }
