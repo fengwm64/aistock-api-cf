@@ -14,6 +14,7 @@ CORS_ALLOW_ORIGIN = "https://aistocklink.cn"
 # 大模型评价接口地址
 OPENAI_API_BASE_URL = "https://gen.pollinations.ai/v1/chat/completions"
 EVA_MODEL = "openai"
+OCR_MODEL = "openai"
 
 # 敏感信息请通过 wrangler secret put 设置:
 #   wrangler secret put WECHAT_SECRET
