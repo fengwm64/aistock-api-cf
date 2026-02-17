@@ -10,17 +10,13 @@ interface StockLookupRow {
     name: string;
 }
 
-export type StockOcrImageDetail = 'low' | 'high' | 'auto';
-
 export interface StockOcrOptions {
-    detail?: StockOcrImageDetail;
     batchConcurrency?: number;
     maxImagesPerRequest?: number;
     timeoutMs?: number;
 }
 
 interface ResolvedStockOcrOptions {
-    detail: StockOcrImageDetail;
     batchConcurrency: number;
     maxImagesPerRequest: number;
     timeoutMs: number;
@@ -35,7 +31,6 @@ export class StockOcrService {
     private static readonly MAX_NAME_LOOKUP_CONCURRENCY = 4;
     private static readonly MAX_BASE64_CHARS = 6_000_000;
     private static readonly DEFAULT_MIME = 'image/png';
-    private static readonly DEFAULT_IMAGE_DETAIL: StockOcrImageDetail = 'low';
     private static readonly DEFAULT_BATCH_CONCURRENCY = 2;
     private static readonly DEFAULT_TIMEOUT_MS = 45_000;
     private static readonly MIN_TIMEOUT_MS = 10_000;
@@ -57,12 +52,7 @@ export class StockOcrService {
     }
 
     private static resolveOptions(options?: StockOcrOptions): ResolvedStockOcrOptions {
-        const detail = options?.detail === 'low' || options?.detail === 'high' || options?.detail === 'auto'
-            ? options.detail
-            : this.DEFAULT_IMAGE_DETAIL;
-
         return {
-            detail,
             batchConcurrency: this.clampInteger(
                 options?.batchConcurrency,
                 1,
@@ -502,16 +492,10 @@ export class StockOcrService {
         return normalized;
     }
 
-    private static buildImageMessage(url: string, detail: StockOcrImageDetail): Record<string, any> {
-        if (detail === 'auto') {
-            return {
-                type: 'image_url',
-                image_url: { url },
-            };
-        }
+    private static buildImageMessage(url: string): Record<string, any> {
         return {
             type: 'image_url',
-            image_url: { url, detail },
+            image_url: { url },
         };
     }
 
@@ -530,46 +514,31 @@ export class StockOcrService {
         const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 
         try {
-            const requestWithDetail = async (detail: StockOcrImageDetail) => {
-                const content = [
-                    { type: 'text', text: prompt },
-                    ...imageUrls.map(url => this.buildImageMessage(url, detail)),
-                ];
-                return fetch(env.OPENAI_API_BASE_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
-                    },
-                    body: JSON.stringify({
-                        model: env.OCR_MODEL,
-                        temperature: 0,
-                        messages: [
-                            { role: 'system', content: this.SYSTEM_PROMPT },
-                            { role: 'user', content },
-                        ],
-                    }),
-                    signal: controller.signal,
-                });
-            };
+            const content = [
+                { type: 'text', text: prompt },
+                ...imageUrls.map(url => this.buildImageMessage(url)),
+            ];
 
-            let response = await requestWithDetail(options.detail);
+            const response = await fetch(env.OPENAI_API_BASE_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    model: env.OCR_MODEL,
+                    temperature: 0,
+                    messages: [
+                        { role: 'system', content: this.SYSTEM_PROMPT },
+                        { role: 'user', content },
+                    ],
+                }),
+                signal: controller.signal,
+            });
 
             if (!response.ok) {
                 const errText = await response.text();
-                const supportsAutoFallback = options.detail !== 'auto'
-                    && (response.status === 400 || response.status === 422)
-                    && /detail|image_url|unsupported|invalid/i.test(errText);
-
-                if (supportsAutoFallback) {
-                    response = await requestWithDetail('auto');
-                    if (!response.ok) {
-                        const fallbackErrText = await response.text();
-                        throw new Error(`VLM 接口请求失败: ${response.status} ${fallbackErrText.slice(0, 300)}`);
-                    }
-                } else {
-                    throw new Error(`VLM 接口请求失败: ${response.status} ${errText.slice(0, 300)}`);
-                }
+                throw new Error(`VLM 接口请求失败: ${response.status} ${errText.slice(0, 300)}`);
             }
 
             const data: any = await response.json();
@@ -630,14 +599,23 @@ export class StockOcrService {
         return results;
     }
 
-    static async recognizeStocksFromImages(imageUrls: string[], env: Env, hint?: string, options?: StockOcrOptions): Promise<StockOcrItem[][]> {
-        if (imageUrls.length === 0) return [];
-
-        const resolved = this.resolveOptions(options);
+    private static async runRecognition(
+        imageUrls: string[],
+        env: Env,
+        hint: string | undefined,
+        resolved: ResolvedStockOcrOptions,
+    ): Promise<StockOcrItem[][]> {
         const batches = this.splitIntoBatches(imageUrls, resolved.maxImagesPerRequest);
         const jobs = batches.map((batch) => async () => this.generateOcrResult(batch, env, hint, resolved));
         const batchResults = await this.runWithConcurrency(jobs, resolved.batchConcurrency);
         const recognized = batchResults.flat();
         return this.normalizeByStocks(recognized, env);
+    }
+
+    static async recognizeStocksFromImages(imageUrls: string[], env: Env, hint?: string, options?: StockOcrOptions): Promise<StockOcrItem[][]> {
+        if (imageUrls.length === 0) return [];
+
+        const resolved = this.resolveOptions(options);
+        return this.runRecognition(imageUrls, env, hint, resolved);
     }
 }

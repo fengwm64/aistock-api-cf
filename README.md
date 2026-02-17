@@ -1229,7 +1229,6 @@ GET  /api/cn/stocks/600519/analysis?forceRefresh=1
 - **请求体字段**:
   - `images`（必填）— 图片数组，最多 8 张
   - `hint` / `ocrHint`（可选）— 补充提示（例如“同花顺自选股截图”）
-  - `detail`（可选）— 图像细节等级：`low` / `high` / `auto`，默认 `low`
   - `batchConcurrency`（可选）— 批次并发数，范围 1-4，默认 2
   - `maxImagesPerRequest`（可选）— 单次 VLM 请求最多图片数，范围 1-4，默认 4
   - `timeoutMs`（可选）— 模型超时时间（毫秒），范围 10000-120000，默认 45000
@@ -1248,7 +1247,6 @@ GET  /api/cn/stocks/600519/analysis?forceRefresh=1
     "data:image/png;base64,iVBORw0KGgoAAA..."
   ],
   "hint": "同花顺自选股列表",
-  "detail": "low",
   "batchConcurrency": 2,
   "maxImagesPerRequest": 2,
   "timeoutMs": 30000
@@ -1285,10 +1283,8 @@ GET  /api/cn/stocks/600519/analysis?forceRefresh=1
 - 当仅识别到名称（无代码）时，会按名称模糊查询 `stocks`，取首条结果的名称和代码返回
 
 **大图性能建议**:
-- 默认 `detail=low`，优先降低推理耗时
 - 建议客户端先压缩/缩放图片（例如长边 1400-1800）
 - 多图时可调高 `batchConcurrency`（如 2-3）平衡延迟与稳定性
-- 如果上游不支持 `image_url.detail`，服务会自动回退到 `auto`
 
 ---
 
@@ -1664,9 +1660,7 @@ wrangler secret put OPENAI_API_KEY
   - 新增 `StockOcrService` 与 `StockOcrController`，包含 VLM 请求、提示词约束、JSON 解析与容错清洗。
   - 模型配置新增 `OCR_MODEL`，复用 `OPENAI_API_BASE_URL` + `OPENAI_API_KEY`。
 - **性能优化**:
-  - 增加图像细节参数 `detail`（默认 `low`）以降低大图识别耗时。
   - 支持批次并发 `batchConcurrency`（默认 2）并保持返回顺序稳定。
-  - 接口兼容回退机制：当上游不支持 `image_url.detail` 时自动回退 `auto`。
 
 ### 2026年2月12日
 - **新增功能**:

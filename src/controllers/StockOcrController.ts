@@ -32,7 +32,6 @@ export class StockOcrController {
             ? body.hint
             : (typeof body?.ocrHint === 'string' ? body.ocrHint : '');
         const ocrOptions: StockOcrOptions = {
-            detail: body?.detail ?? body?.ocrOptions?.detail,
             batchConcurrency: body?.batchConcurrency ?? body?.ocrOptions?.batchConcurrency,
             maxImagesPerRequest: body?.maxImagesPerRequest ?? body?.ocrOptions?.maxImagesPerRequest,
             timeoutMs: body?.timeoutMs ?? body?.ocrOptions?.timeoutMs,
