@@ -1,6 +1,6 @@
 # AIStock API
 
-A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、盈利预测、热门人气榜、新闻头条、个股新闻、个股 AI 评价等接口。
+A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、盈利预测、热门人气榜、新闻头条、个股新闻、个股 AI 评价、自选股图片 OCR 识别等接口。
 
 ## 架构
 
@@ -15,7 +15,8 @@ src/
 │   ├── StockRankController.ts      # 热门人气榜
 │   ├── ProfitForecastController.ts # 盈利预测
 │   ├── NewsController.ts           # 新闻头条/个股新闻/新闻详情
-│   └── StockAnalysisController.ts  # 个股 AI 评价
+│   ├── StockAnalysisController.ts  # 个股 AI 评价
+│   └── StockOcrController.ts       # 自选股图片 OCR
 ├── services/                       # 服务层：核心业务逻辑 & 外部数据源请求
 │   ├── EmService.ts                # 东方财富 - 股票基本信息
 │   ├── EmQuoteService.ts           # 东方财富 - 股票实时行情
@@ -23,6 +24,7 @@ src/
 │   ├── ThsService.ts               # 同花顺 - 盈利预测
 │   ├── ClsStockNewsService.ts      # 财联社 - 个股新闻复用服务
 │   ├── StockAnalysisService.ts     # 个股 AI 评价聚合 + 大模型调用
+│   ├── StockOcrService.ts          # 自选股图片 OCR + VLM 调用
 │   └── CacheService.ts             # KV 缓存封装
 └── utils/                          # 工具层
     ├── response.ts                 # 统一响应格式
@@ -1212,6 +1214,82 @@ GET  /api/cn/stocks/600519/analysis?forceRefresh=1
 
 ---
 
+#### 8.4 自选股图片 OCR
+
+基于 VLM（视觉模型）从截图中批量识别用户自选股列表，返回结构化 JSON。
+
+- **URL**: `/api/cn/stocks/ocr`
+- **方法**: `POST`
+- **请求头**:
+  - `Content-Type: application/json`
+- **模型配置**:
+  - 请求地址：`OPENAI_API_BASE_URL`
+  - API Key：`OPENAI_API_KEY`
+  - 模型名：`OCR_MODEL`
+- **请求体字段**:
+  - `images`（必填）— 图片数组，最多 8 张
+  - `hint` / `ocrHint`（可选）— 补充提示（例如“同花顺自选股截图”）
+  - `detail`（可选）— 图像细节等级：`low` / `high` / `auto`，默认 `low`
+  - `batchConcurrency`（可选）— 批次并发数，范围 1-4，默认 2
+  - `maxImagesPerRequest`（可选）— 单次 VLM 请求最多图片数，范围 1-4，默认 4
+  - `timeoutMs`（可选）— 模型超时时间（毫秒），范围 10000-120000，默认 45000
+- **images 每项支持格式**:
+  - `https://...` 或 `http://...` 远程图片 URL
+  - `data:image/png;base64,...` Data URL
+  - 纯 base64 字符串（服务端自动补齐为 Data URL）
+  - 对象格式：`{"url":"https://..."}` 或 `{"data":"<base64>","mime":"image/png"}`
+
+**请求示例**:
+
+```json
+{
+  "images": [
+    "https://example.com/watchlist-1.png",
+    "data:image/png;base64,iVBORw0KGgoAAA..."
+  ],
+  "hint": "同花顺自选股列表",
+  "detail": "low",
+  "batchConcurrency": 2,
+  "maxImagesPerRequest": 2,
+  "timeoutMs": 30000
+}
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    [
+      {
+        "股票简称": "贵州茅台",
+        "股票代码": "600519"
+      },
+      {
+        "股票简称": "宁德时代",
+        "股票代码": "300750"
+      }
+    ],
+    []
+  ]
+}
+```
+
+**返回格式说明**:
+- `data` 是“按图片顺序”的二维数组
+- 每个元素对应一张图片的识别结果，元素内是股票对象数组
+- 与 `{[股票简称：xxxx;股票代码：xxxxx],[],[]}` 的需求等价，标准 JSON 形式为 `[[{"股票简称":"xxxx","股票代码":"xxxxx"}],[],[]]`
+
+**大图性能建议**:
+- 默认 `detail=low`，优先降低推理耗时
+- 建议客户端先压缩/缩放图片（例如长边 1400-1800）
+- 多图时可调高 `batchConcurrency`（如 2-3）平衡延迟与稳定性
+- 如果上游不支持 `image_url.detail`，服务会自动回退到 `auto`
+
+---
+
 ### 9. 新闻详情
 
 获取财联社新闻全文内容。
@@ -1540,6 +1618,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `OPENAI_API_BASE_URL` | 大模型接口地址（OpenAI 兼容 Chat Completions） |
 | `OPENAI_API_KEY` | 大模型接口密钥 |
 | `EVA_MODEL` | 个股评价使用的模型名 |
+| `OCR_MODEL` | 自选股图片 OCR 使用的模型名 |
 
 设置方式：
 
@@ -1576,6 +1655,16 @@ wrangler secret put OPENAI_API_KEY
 ---
 
 ## 更新日志
+
+### 2026年2月17日
+- **新增功能**:
+  - 新增自选股图片 OCR 接口 `POST /api/cn/stocks/ocr`，支持批量图片识别股票简称和股票代码。
+  - 新增 `StockOcrService` 与 `StockOcrController`，包含 VLM 请求、提示词约束、JSON 解析与容错清洗。
+  - 模型配置新增 `OCR_MODEL`，复用 `OPENAI_API_BASE_URL` + `OPENAI_API_KEY`。
+- **性能优化**:
+  - 增加图像细节参数 `detail`（默认 `low`）以降低大图识别耗时。
+  - 支持批次并发 `batchConcurrency`（默认 2）并保持返回顺序稳定。
+  - 接口兼容回退机制：当上游不支持 `image_url.detail` 时自动回退 `auto`。
 
 ### 2026年2月12日
 - **新增功能**:

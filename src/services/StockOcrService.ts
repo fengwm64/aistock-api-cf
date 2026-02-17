@@ -5,17 +5,75 @@ export interface StockOcrItem {
     '股票代码': string;
 }
 
+export type StockOcrImageDetail = 'low' | 'high' | 'auto';
+
+export interface StockOcrOptions {
+    detail?: StockOcrImageDetail;
+    batchConcurrency?: number;
+    maxImagesPerRequest?: number;
+    timeoutMs?: number;
+}
+
+interface ResolvedStockOcrOptions {
+    detail: StockOcrImageDetail;
+    batchConcurrency: number;
+    maxImagesPerRequest: number;
+    timeoutMs: number;
+}
+
 export class StockOcrService {
     private static readonly MAX_IMAGES = 8;
     private static readonly MAX_IMAGES_PER_REQUEST = 4;
+    private static readonly MAX_BATCH_CONCURRENCY = 4;
     private static readonly MAX_BASE64_CHARS = 6_000_000;
     private static readonly DEFAULT_MIME = 'image/png';
+    private static readonly DEFAULT_IMAGE_DETAIL: StockOcrImageDetail = 'low';
+    private static readonly DEFAULT_BATCH_CONCURRENCY = 2;
+    private static readonly DEFAULT_TIMEOUT_MS = 45_000;
+    private static readonly MIN_TIMEOUT_MS = 10_000;
+    private static readonly MAX_TIMEOUT_MS = 120_000;
 
     private static readonly SYSTEM_PROMPT = '你是严格的 JSON 输出助手。必须只输出 JSON，不得输出多余解释。';
 
     private static normalizeText(value: unknown): string {
         if (typeof value !== 'string') return '';
         return value.trim().replace(/\s+/g, ' ');
+    }
+
+    private static clampInteger(value: unknown, min: number, max: number, fallback: number): number {
+        const parsed = typeof value === 'number'
+            ? value
+            : (typeof value === 'string' && value.trim() ? Number(value) : NaN);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.min(max, Math.max(min, Math.floor(parsed)));
+    }
+
+    private static resolveOptions(options?: StockOcrOptions): ResolvedStockOcrOptions {
+        const detail = options?.detail === 'low' || options?.detail === 'high' || options?.detail === 'auto'
+            ? options.detail
+            : this.DEFAULT_IMAGE_DETAIL;
+
+        return {
+            detail,
+            batchConcurrency: this.clampInteger(
+                options?.batchConcurrency,
+                1,
+                this.MAX_BATCH_CONCURRENCY,
+                this.DEFAULT_BATCH_CONCURRENCY,
+            ),
+            maxImagesPerRequest: this.clampInteger(
+                options?.maxImagesPerRequest,
+                1,
+                this.MAX_IMAGES_PER_REQUEST,
+                this.MAX_IMAGES_PER_REQUEST,
+            ),
+            timeoutMs: this.clampInteger(
+                options?.timeoutMs,
+                this.MIN_TIMEOUT_MS,
+                this.MAX_TIMEOUT_MS,
+                this.DEFAULT_TIMEOUT_MS,
+            ),
+        };
     }
 
     private static normalizeStockCode(raw: string): string {
@@ -234,7 +292,20 @@ export class StockOcrService {
         return normalized;
     }
 
-    private static async requestModel(prompt: string, imageUrls: string[], env: Env): Promise<string> {
+    private static buildImageMessage(url: string, detail: StockOcrImageDetail): Record<string, any> {
+        if (detail === 'auto') {
+            return {
+                type: 'image_url',
+                image_url: { url },
+            };
+        }
+        return {
+            type: 'image_url',
+            image_url: { url, detail },
+        };
+    }
+
+    private static async requestModel(prompt: string, imageUrls: string[], env: Env, options: ResolvedStockOcrOptions): Promise<string> {
         if (!env.OPENAI_API_BASE_URL) {
             throw new Error('缺少 OPENAI_API_BASE_URL 配置');
         }
@@ -246,37 +317,49 @@ export class StockOcrService {
         }
 
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 45_000);
+        const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 
         try {
-            const content = [
-                { type: 'text', text: prompt },
-                ...imageUrls.map(url => ({
-                    type: 'image_url',
-                    image_url: { url },
-                })),
-            ];
+            const requestWithDetail = async (detail: StockOcrImageDetail) => {
+                const content = [
+                    { type: 'text', text: prompt },
+                    ...imageUrls.map(url => this.buildImageMessage(url, detail)),
+                ];
+                return fetch(env.OPENAI_API_BASE_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+                    },
+                    body: JSON.stringify({
+                        model: env.OCR_MODEL,
+                        temperature: 0,
+                        messages: [
+                            { role: 'system', content: this.SYSTEM_PROMPT },
+                            { role: 'user', content },
+                        ],
+                    }),
+                    signal: controller.signal,
+                });
+            };
 
-            const response = await fetch(env.OPENAI_API_BASE_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
-                },
-                body: JSON.stringify({
-                    model: env.OCR_MODEL,
-                    temperature: 0,
-                    messages: [
-                        { role: 'system', content: this.SYSTEM_PROMPT },
-                        { role: 'user', content },
-                    ],
-                }),
-                signal: controller.signal,
-            });
+            let response = await requestWithDetail(options.detail);
 
             if (!response.ok) {
                 const errText = await response.text();
-                throw new Error(`VLM 接口请求失败: ${response.status} ${errText.slice(0, 300)}`);
+                const supportsAutoFallback = options.detail !== 'auto'
+                    && (response.status === 400 || response.status === 422)
+                    && /detail|image_url|unsupported|invalid/i.test(errText);
+
+                if (supportsAutoFallback) {
+                    response = await requestWithDetail('auto');
+                    if (!response.ok) {
+                        const fallbackErrText = await response.text();
+                        throw new Error(`VLM 接口请求失败: ${response.status} ${fallbackErrText.slice(0, 300)}`);
+                    }
+                } else {
+                    throw new Error(`VLM 接口请求失败: ${response.status} ${errText.slice(0, 300)}`);
+                }
             }
 
             const data: any = await response.json();
@@ -290,7 +373,7 @@ export class StockOcrService {
         }
     }
 
-    private static async generateOcrResult(imageUrls: string[], env: Env, hint?: string): Promise<StockOcrItem[][]> {
+    private static async generateOcrResult(imageUrls: string[], env: Env, hint: string | undefined, options: ResolvedStockOcrOptions): Promise<StockOcrItem[][]> {
         let lastError = '模型输出解析失败';
         const promptBase = this.buildPrompt(imageUrls.length, hint);
 
@@ -300,7 +383,7 @@ export class StockOcrService {
                 : `\n\n【上次输出问题】${lastError}\n请严格修正并仅输出 JSON。`;
             const prompt = promptBase + correction;
 
-            const raw = await this.requestModel(prompt, imageUrls, env);
+            const raw = await this.requestModel(prompt, imageUrls, env, options);
             try {
                 return this.parseModelResult(raw, imageUrls.length);
             } catch (error: any) {
@@ -311,16 +394,40 @@ export class StockOcrService {
         throw new Error(`大模型输出不符合约束: ${lastError}`);
     }
 
-    static async recognizeStocksFromImages(imageUrls: string[], env: Env, hint?: string): Promise<StockOcrItem[][]> {
+    private static splitIntoBatches(imageUrls: string[], batchSize: number): string[][] {
+        const batches: string[][] = [];
+        for (let i = 0; i < imageUrls.length; i += batchSize) {
+            batches.push(imageUrls.slice(i, i + batchSize));
+        }
+        return batches;
+    }
+
+    private static async runWithConcurrency<T>(jobs: Array<() => Promise<T>>, concurrency: number): Promise<T[]> {
+        const results: T[] = new Array(jobs.length);
+        let cursor = 0;
+        const workerCount = Math.min(concurrency, jobs.length);
+
+        const workers = Array.from({ length: workerCount }, async () => {
+            while (true) {
+                const index = cursor;
+                cursor += 1;
+                if (index >= jobs.length) break;
+                results[index] = await jobs[index]();
+            }
+        });
+
+        await Promise.all(workers);
+        return results;
+    }
+
+    static async recognizeStocksFromImages(imageUrls: string[], env: Env, hint?: string, options?: StockOcrOptions): Promise<StockOcrItem[][]> {
         if (imageUrls.length === 0) return [];
 
-        const results: StockOcrItem[][] = [];
-        for (let i = 0; i < imageUrls.length; i += this.MAX_IMAGES_PER_REQUEST) {
-            const batch = imageUrls.slice(i, i + this.MAX_IMAGES_PER_REQUEST);
-            const batchResult = await this.generateOcrResult(batch, env, hint);
-            results.push(...batchResult);
-        }
+        const resolved = this.resolveOptions(options);
+        const batches = this.splitIntoBatches(imageUrls, resolved.maxImagesPerRequest);
+        const jobs = batches.map((batch) => async () => this.generateOcrResult(batch, env, hint, resolved));
+        const batchResults = await this.runWithConcurrency(jobs, resolved.batchConcurrency);
 
-        return results;
+        return batchResults.flat();
     }
 }

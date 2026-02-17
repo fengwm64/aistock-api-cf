@@ -1,6 +1,6 @@
 import type { Env } from '../index';
 import { createResponse } from '../utils/response';
-import { StockOcrService } from '../services/StockOcrService';
+import { StockOcrService, type StockOcrOptions } from '../services/StockOcrService';
 
 /**
  * 自选股图片 OCR 控制器
@@ -31,10 +31,16 @@ export class StockOcrController {
         const hint = typeof body?.hint === 'string'
             ? body.hint
             : (typeof body?.ocrHint === 'string' ? body.ocrHint : '');
+        const ocrOptions: StockOcrOptions = {
+            detail: body?.detail ?? body?.ocrOptions?.detail,
+            batchConcurrency: body?.batchConcurrency ?? body?.ocrOptions?.batchConcurrency,
+            maxImagesPerRequest: body?.maxImagesPerRequest ?? body?.ocrOptions?.maxImagesPerRequest,
+            timeoutMs: body?.timeoutMs ?? body?.ocrOptions?.timeoutMs,
+        };
 
         try {
             const normalizedImages = StockOcrService.normalizeImages(images);
-            const data = await StockOcrService.recognizeStocksFromImages(normalizedImages, env, hint);
+            const data = await StockOcrService.recognizeStocksFromImages(normalizedImages, env, hint, ocrOptions);
             return createResponse(200, 'success', data);
         } catch (error: any) {
             const message = error instanceof Error ? error.message : 'Internal Server Error';
