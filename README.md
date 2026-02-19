@@ -1183,6 +1183,7 @@ curl -N -X POST "https://your-domain/api/cn/stocks/600519/analysis" \
 - `start`：任务开始
 - `progress`：阶段进度（如 `inputs.fetching`、`model.requesting`、`db.writing`）
 - `model.delta`：大模型流式增量文本（从上游模型接口实时转发，可能出现多次）
+- `progress`（可选）`stage=model.stream_fallback`：上游流式不兼容时自动降级为非流式
 - `result`：最终分析结果（与普通 POST 的 `data` 内容一致）
 - `done`：任务完成
 - `error`：任务失败（包含 `code` 与 `message`）

@@ -336,6 +336,26 @@ JSON 结构如下：
     }
 
     private static extractModelFinalContent(data: any): string {
+        if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+            return data.output_text;
+        }
+
+        if (Array.isArray(data?.output)) {
+            const responseText = data.output
+                .map((item: any) => {
+                    const content = Array.isArray(item?.content) ? item.content : [];
+                    return content
+                        .map((part: any) => {
+                            if (typeof part?.text === 'string') return part.text;
+                            if (typeof part?.output_text === 'string') return part.output_text;
+                            return '';
+                        })
+                        .join('');
+                })
+                .join('');
+            if (responseText) return responseText;
+        }
+
         const choice = data?.choices?.[0];
         if (!choice) return '';
 
@@ -349,6 +369,19 @@ JSON 结构如下：
     }
 
     private static extractModelStreamDelta(data: any): string {
+        if (data?.type === 'response.output_text.delta') {
+            const delta = this.extractTextFromModelField(data?.delta);
+            if (delta) return delta;
+        }
+
+        if (typeof data?.delta === 'string') {
+            return data.delta;
+        }
+
+        if (typeof data?.output_text === 'string') {
+            return data.output_text;
+        }
+
         const choice = data?.choices?.[0];
         if (!choice) return '';
 
@@ -483,6 +516,7 @@ JSON 结构如下：
             let buffer = '';
             let fullContent = '';
             let doneReceived = false;
+            let currentEventDataLines: string[] = [];
 
             const emitDelta = (delta: string) => {
                 if (!delta) return;
@@ -508,8 +542,19 @@ JSON 结构如下：
                         emitDelta(delta);
                     }
                 } catch {
-                    // 兼容非 JSON 行
+                    const trimmed = payload.trim();
+                    if (trimmed && !trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+                        emitDelta(trimmed);
+                    }
                 }
+            };
+
+            const flushEventData = () => {
+                if (currentEventDataLines.length === 0) return;
+                const payload = currentEventDataLines.join('\n').trim();
+                currentEventDataLines = [];
+                if (!payload) return;
+                consumePayload(payload);
             };
 
             while (true) {
@@ -520,18 +565,19 @@ JSON 结构如下：
 
                 let newlineIndex = buffer.indexOf('\n');
                 while (newlineIndex >= 0) {
-                    const rawLine = buffer.slice(0, newlineIndex);
+                    const rawLine = buffer.slice(0, newlineIndex).replace(/\r$/, '');
                     buffer = buffer.slice(newlineIndex + 1);
 
-                    const line = rawLine.trim();
-                    if (line) {
-                        if (!line.startsWith(':') && !line.startsWith('event:') && !line.startsWith('id:') && !line.startsWith('retry:')) {
-                            if (line.startsWith('data:')) {
-                                consumePayload(line.slice(5).trim());
-                            } else {
-                                consumePayload(line);
-                            }
-                        }
+                    if (rawLine === '') {
+                        flushEventData();
+                    } else if (rawLine.startsWith(':')) {
+                        // SSE 注释行
+                    } else if (rawLine.startsWith('data:')) {
+                        currentEventDataLines.push(rawLine.slice(5).trimStart());
+                    } else if (rawLine.startsWith('event:') || rawLine.startsWith('id:') || rawLine.startsWith('retry:')) {
+                        // SSE 元信息行，忽略
+                    } else {
+                        currentEventDataLines.push(rawLine.trim());
                     }
 
                     if (doneReceived) break;
@@ -540,6 +586,8 @@ JSON 结构如下：
 
                 if (doneReceived) break;
             }
+
+            flushEventData();
 
             const tail = buffer.trim();
             if (!doneReceived && tail) {
@@ -578,9 +626,26 @@ JSON 结构如下：
                 : `\n\n【上次输出问题】\n${lastError}\n请严格修正并仅输出 JSON。`;
             const prompt = this.buildPrompt(newsText, forecastData, tradingData, today) + correction;
 
-            const raw = onModelDelta
-                ? await this.requestModelStream(prompt, env, attempt, onModelDelta)
-                : await this.requestModel(prompt, env);
+            let raw: string;
+            if (onModelDelta) {
+                try {
+                    raw = await this.requestModelStream(prompt, env, attempt, onModelDelta);
+                } catch (streamError: unknown) {
+                    const reason = this.getErrorMessage(streamError, '模型流式请求失败');
+                    this.emitProgress(onProgress, 'model.stream_fallback', '模型流式转发失败，已自动降级为非流式请求', {
+                        attempt,
+                        reason,
+                    });
+                    raw = await this.requestModel(prompt, env);
+                    try {
+                        onModelDelta({ attempt, content: raw });
+                    } catch {
+                        // 忽略回调异常
+                    }
+                }
+            } else {
+                raw = await this.requestModel(prompt, env);
+            }
             this.emitProgress(onProgress, 'model.responded', `模型返回完成（第 ${attempt} 次）`, {
                 attempt,
                 contentLength: raw.length,
