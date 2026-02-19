@@ -11,6 +11,7 @@ import { WechatEventController } from './controllers/WechatEventController';
 import { ScanLoginController } from './controllers/ScanLoginController';
 import { StockAnalysisController } from './controllers/StockAnalysisController';
 import { StockOcrController } from './controllers/StockOcrController';
+import { EmStockRankService, type StockRankResult } from './services/EmStockRankService';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
@@ -38,6 +39,16 @@ export interface Env {
     OPENAI_API_KEY: string;
     EVA_MODEL: string;
     OCR_MODEL: string;
+    CRON_HOT_TOPN?: string;
+}
+
+interface HotStocksCachePayload {
+    timestamp: number;
+    generatedAt: string;
+    source: string;
+    topN: number;
+    symbols: string[];
+    hotStocks: StockRankResult[];
 }
 
 /** 带数字 ID 参数的路由 */
@@ -101,6 +112,50 @@ const symbolQueryRoutes: [RegExp, SymbolQueryRouteHandler][] = [
 const settingQueryRoutes: [RegExp, SettingQueryRouteHandler][] = [
     [/^\/api\/users\/me\/settings\/([^/]+)\/?$/, UserController.updateSetting.bind(UserController)],
 ];
+
+const HOT_STOCKS_CRON_EXPRESSION = '*/30 * * * *';
+const HOT_STOCKS_CACHE_KEY = 'hot_stocks:v1';
+const HOT_STOCKS_CACHE_TTL_SECONDS = 30 * 60;
+const DEFAULT_CRON_HOT_TOPN = 8;
+const MAX_CRON_HOT_TOPN = 100;
+
+function parsePositiveInteger(value: unknown): number | null {
+    const parsed = typeof value === 'number' ? value : Number(String(value ?? '').trim());
+    if (!Number.isFinite(parsed)) return null;
+    if (!Number.isInteger(parsed) || parsed <= 0) return null;
+    return parsed;
+}
+
+function resolveCronHotTopN(env: Env): number {
+    const parsed = parsePositiveInteger(env.CRON_HOT_TOPN);
+    if (parsed === null) return DEFAULT_CRON_HOT_TOPN;
+    return Math.min(MAX_CRON_HOT_TOPN, parsed);
+}
+
+async function refreshHotStocksCache(env: Env): Promise<void> {
+    if (!env.KV) {
+        console.warn('[Cron][HotStocks] KV binding is missing, skip refresh');
+        return;
+    }
+
+    const topN = resolveCronHotTopN(env);
+    const rankList = await EmStockRankService.getStockHotRank();
+    const hotStocks = rankList.slice(0, topN);
+    const payload: HotStocksCachePayload = {
+        timestamp: Date.now(),
+        generatedAt: new Date().toISOString(),
+        source: '东方财富 https://guba.eastmoney.com/rank/',
+        topN: hotStocks.length,
+        symbols: hotStocks.map(item => item['股票代码']),
+        hotStocks,
+    };
+
+    await env.KV.put(HOT_STOCKS_CACHE_KEY, JSON.stringify(payload), {
+        expirationTtl: HOT_STOCKS_CACHE_TTL_SECONDS,
+    });
+
+    console.log(`[Cron][HotStocks] refreshed ${HOT_STOCKS_CACHE_KEY}, topN=${payload.topN}`);
+}
 
 function getCorsOrigin(request: Request, env: Env): string | null {
     if (env.CORS_ALLOW_ORIGIN && env.CORS_ALLOW_ORIGIN !== '*') return env.CORS_ALLOW_ORIGIN;
@@ -201,5 +256,19 @@ export default {
         } catch (err: any) {
             return withCors(createResponse(500, err instanceof Error ? err.message : 'Internal Server Error'), request, env);
         }
+    },
+    async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+        if (event.cron !== HOT_STOCKS_CRON_EXPRESSION) {
+            console.log(`[Cron] Unhandled expression: ${event.cron}`);
+            return;
+        }
+
+        ctx.waitUntil((async () => {
+            try {
+                await refreshHotStocksCache(env);
+            } catch (err) {
+                console.error('[Cron][HotStocks] refresh failed:', err);
+            }
+        })());
     },
 };
