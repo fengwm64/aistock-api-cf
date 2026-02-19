@@ -9,12 +9,49 @@ import { getStockIdentity } from '../utils/stock';
 /** 单次最多查询股票数量 */
 const MAX_SYMBOLS = 20;
 
+interface StockInfoCachePayload {
+    timestamp: number;
+    data: Record<string, any>;
+}
+
 /**
  * 股票基本信息控制器
  */
 export class StockInfoController {
     /** 缓存 TTL: 14天 */
     private static readonly CACHE_TTL = 14 * 24 * 60 * 60;
+
+    private static isValidCachePayload(value: unknown): value is StockInfoCachePayload {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+        const payload = value as Record<string, unknown>;
+        if (typeof payload.timestamp !== 'number' || !Number.isFinite(payload.timestamp)) return false;
+        if (!payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) return false;
+        return true;
+    }
+
+    private static getSourceBySymbol(symbol: string): string {
+        const { eastmoneyId } = getStockIdentity(symbol);
+        const prefix = eastmoneyId === 1 ? 'sh' : 'sz';
+        return `东方财富 http://quote.eastmoney.com/concept/${prefix}${symbol}.html?from=classic`;
+    }
+
+    private static async fetchAndMaybeCache(
+        symbol: string,
+        cacheService: CacheService | null,
+    ): Promise<Record<string, any>> {
+        const data = await EmService.getStockInfo(symbol);
+
+        if (cacheService && Object.keys(data).length > 0) {
+            const now = Date.now();
+            try {
+                cacheService.set(`stock_info:${symbol}`, { timestamp: now, data }, this.CACHE_TTL);
+            } catch (err) {
+                console.error(`Error writing stock info cache for ${symbol}:`, err);
+            }
+        }
+
+        return data;
+    }
 
     static async getStockInfo(symbol: string, env: Env, ctx: ExecutionContext) {
         if (!symbol) {
@@ -25,24 +62,22 @@ export class StockInfoController {
         }
 
         const cacheKey = `stock_info:${symbol}`;
-        // 根据股票代码判断交易所前缀
-        const identity = getStockIdentity(symbol);
-        const prefix = identity.market === 'unknown' || identity.market === 'bj' ? 'sz' : identity.market;
-        const source = `东方财富 http://quote.eastmoney.com/concept/${prefix}${symbol}.html?from=classic`;
+        const source = this.getSourceBySymbol(symbol);
 
         try {
-            let cachedWrapper: any = null;
-            let cacheService: CacheService | null = null;
+            let cachedWrapper: unknown = null;
+            const cacheService = env.KV ? new CacheService(env.KV, ctx) : null;
 
-            if (env.KV) {
-                cacheService = new CacheService(env.KV, ctx);
-                cachedWrapper = await cacheService.get(cacheKey);
+            if (cacheService) {
+                try {
+                    cachedWrapper = await cacheService.get<StockInfoCachePayload>(cacheKey);
+                } catch (err) {
+                    console.error(`Error reading stock info cache for ${symbol}:`, err);
+                }
             }
 
-            // 命中缓存（新格式: { timestamp, data }）
-            if (cachedWrapper?.timestamp && cachedWrapper?.data) {
-                cacheService?.refresh(cacheKey, cachedWrapper, this.CACHE_TTL);
-
+            // 命中缓存：不刷新 TTL（硬过期）
+            if (this.isValidCachePayload(cachedWrapper)) {
                 return createResponse(200, 'success (cached)', {
                     '来源': source,
                     '更新时间': formatToChinaTime(cachedWrapper.timestamp),
@@ -51,12 +86,8 @@ export class StockInfoController {
             }
 
             // 未命中缓存：请求源数据
-            const data = await EmService.getStockInfo(symbol);
+            const data = await this.fetchAndMaybeCache(symbol, cacheService);
             const now = Date.now();
-
-            if (cacheService && Object.keys(data).length > 0) {
-                cacheService.set(cacheKey, { timestamp: now, data }, this.CACHE_TTL);
-            }
 
             return createResponse(200, 'success', {
                 '来源': source,
@@ -66,6 +97,36 @@ export class StockInfoController {
         } catch (err: any) {
             console.error(`Error fetching stock info for ${symbol}:`, err);
             return createResponse(500, err instanceof Error ? err.message : 'Internal Server Error');
+        }
+    }
+
+    private static async getStockInfoForBatch(
+        symbol: string,
+        cacheService: CacheService | null,
+    ): Promise<Record<string, any>> {
+        const cacheKey = `stock_info:${symbol}`;
+
+        if (cacheService) {
+            try {
+                const cachedWrapper = await cacheService.get<StockInfoCachePayload>(cacheKey);
+                if (this.isValidCachePayload(cachedWrapper)) {
+                    return cachedWrapper.data;
+                }
+            } catch (err) {
+                console.error(`Error reading stock info cache for ${symbol}:`, err);
+            }
+        }
+
+        try {
+            return await this.fetchAndMaybeCache(symbol, cacheService);
+        } catch (err) {
+            console.error(`Error fetching info for ${symbol}:`, err);
+            return {
+                '市场代码': '-',
+                '股票代码': symbol,
+                '股票简称': '-',
+                '错误': err instanceof Error ? err.message : '查询失败',
+            };
         }
     }
 
@@ -96,7 +157,8 @@ export class StockInfoController {
         }
 
         try {
-            const results = await EmService.getBatchStockInfo(symbols);
+            const cacheService = env.KV ? new CacheService(env.KV, ctx) : null;
+            const results = await Promise.all(symbols.map(symbol => this.getStockInfoForBatch(symbol, cacheService)));
             const now = Date.now();
 
             return createResponse(200, 'success', {
