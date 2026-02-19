@@ -1,6 +1,5 @@
 import { ThsService } from '../services/ThsService';
 import { createResponse } from '../utils/response';
-import { getBooleanQueryParam } from '../utils/query';
 import { Env } from '../index';
 
 interface EarningsForecastRow {
@@ -171,12 +170,10 @@ export class ProfitForecastController {
             return createResponse(400, '缺少 symbol 参数');
         }
 
-        const forceRefresh = getBooleanQueryParam(request, ['forceRefresh', 'force_refresh', 'refresh']);
         const source = `同花顺 https://basic.10jqka.com.cn/new/${symbol}/worth.html`;
 
         try {
-            if (!forceRefresh) {
-                // 先查 D1：命中则直接返回
+            if (request.method === 'GET') {
                 const latest = await env.DB
                     .prepare(
                         `SELECT update_time, summary, forecast_detail, forecast_netprofit_yoy
@@ -188,49 +185,53 @@ export class ProfitForecastController {
                     .bind(symbol)
                     .first<EarningsForecastRow>();
 
-                if (latest) {
-                    return createResponse(200, 'success (d1)', {
-                        '股票代码': symbol,
-                        '来源': source,
-                        '更新时间': latest.update_time,
-                        '摘要': latest.summary || '',
-                        '净利润同比(%)': this.parseForecastNetProfitYoy(latest.forecast_netprofit_yoy),
-                        '业绩预测详表_详细指标预测': this.parseForecastDetail(latest.forecast_detail),
-                    });
+                if (!latest) {
+                    return createResponse(404, `未找到该股票的盈利预测记录: ${symbol}`);
                 }
+
+                return createResponse(200, 'success', {
+                    '股票代码': symbol,
+                    '来源': source,
+                    '更新时间': latest.update_time,
+                    '摘要': latest.summary || '',
+                    '净利润同比(%)': this.parseForecastNetProfitYoy(latest.forecast_netprofit_yoy),
+                    '业绩预测详表_详细指标预测': this.parseForecastDetail(latest.forecast_detail),
+                });
             }
 
-            // D1 未命中：爬取并写入 D1
-            const data = await ThsService.getProfitForecast(symbol);
-            const now = Date.now();
-            const updateTime = this.formatToChinaTimeWithMs(now);
-            const summary = typeof data['摘要'] === 'string' ? data['摘要'] : '';
-            const forecastNetProfitYoy = this.extractForecastNetProfitYoy(summary);
+            if (request.method === 'POST') {
+                const data = await ThsService.getProfitForecast(symbol);
+                const now = Date.now();
+                const updateTime = this.formatToChinaTimeWithMs(now);
+                const summary = typeof data['摘要'] === 'string' ? data['摘要'] : '';
+                const forecastNetProfitYoy = this.extractForecastNetProfitYoy(summary);
 
-            // 写入 D1（仅保留摘要 + 详细指标预测）
-            await env.DB
-                .prepare(
-                    `INSERT INTO earnings_forecast
-                        (symbol, update_time, summary, forecast_detail, forecast_netprofit_yoy)
-                     VALUES
-                        (?1, ?2, ?3, ?4, ?5)`
-                )
-                .bind(
-                    symbol,
-                    updateTime,
-                    summary,
-                    JSON.stringify(data['业绩预测详表_详细指标预测'] ?? []),
-                    forecastNetProfitYoy,
-                )
-                .run();
+                await env.DB
+                    .prepare(
+                        `INSERT INTO earnings_forecast
+                            (symbol, update_time, summary, forecast_detail, forecast_netprofit_yoy)
+                         VALUES
+                            (?1, ?2, ?3, ?4, ?5)`
+                    )
+                    .bind(
+                        symbol,
+                        updateTime,
+                        summary,
+                        JSON.stringify(data['业绩预测详表_详细指标预测'] ?? []),
+                        forecastNetProfitYoy,
+                    )
+                    .run();
 
-            return createResponse(200, forceRefresh ? 'success (refresh)' : 'success', {
-                '股票代码': symbol,
-                '来源': source,
-                '更新时间': updateTime,
-                '净利润同比(%)': forecastNetProfitYoy,
-                ...data,
-            });
+                return createResponse(200, 'success', {
+                    '股票代码': symbol,
+                    '来源': source,
+                    '更新时间': updateTime,
+                    '净利润同比(%)': forecastNetProfitYoy,
+                    ...data,
+                });
+            }
+
+            return createResponse(405, 'Method Not Allowed - 仅支持 GET/POST');
         } catch (error: any) {
             return createResponse(500, error.message);
         }

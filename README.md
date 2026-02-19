@@ -726,15 +726,18 @@ GET /api/cn/stocks/profit-forecast/search?keyword=平安&page=1&pageSize=10&sort
 
 #### 5.3 单只股票盈利预测
 
-获取单只股票的盈利预测详情（摘要 + 详细指标预测），采用“先查 D1，未命中再爬取并写回 D1”的流程。
+获取单只股票的盈利预测详情（摘要 + 详细指标预测），接口遵循 RESTful 语义：
+- `GET` 仅读取 D1 最新记录，不触发抓取；无记录返回 `404`
+- `POST` 触发抓取并写入 D1，返回本次最新结果
 
 - **URL**: `/api/cn/stock/:symbol/profit-forecast`
-- **查询参数**:
-  - `forceRefresh`（可选）— 设为 `1/true` 时跳过 D1，强制重新抓取并写入 D1
+- **方法**:
+  - `GET` — 查询该股票在 D1 的最新盈利预测记录（只读）
+  - `POST` — 主动抓取盈利预测并写入 D1，返回本次抓取结果
 
 ```
 GET /api/cn/stock/600519/profit-forecast
-GET /api/cn/stock/600519/profit-forecast?forceRefresh=1
+POST /api/cn/stock/600519/profit-forecast
 ```
 
 **单票响应示例**:
@@ -1144,8 +1147,6 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
 - **URL**: `/api/cn/stocks/:symbol/analysis`
 - **路径参数**:
   - `symbol` — A 股股票代码（6位数字）
-- **查询参数**:
-  - `forceRefresh`（可选）— 设为 `1/true` 时强制重新生成评价并写入 D1
 - **方法**:
   - `POST` — 触发一次新的 AI 评价，写入 D1 后返回本次结果
   - `GET` — 获取该股票最近一次评价记录；若数据库中无记录返回 `404`，不会自动触发新评价
@@ -1164,7 +1165,6 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
 ```bash
 POST /api/cn/stocks/600519/analysis
 GET  /api/cn/stocks/600519/analysis
-GET  /api/cn/stocks/600519/analysis?forceRefresh=1
 ```
 
 **POST 响应示例**:
@@ -1653,6 +1653,13 @@ wrangler secret put OPENAI_API_KEY
 ---
 
 ## 更新日志
+
+### 2026年2月19日
+- **规范调整**:
+  - 移除 `forceRefresh` 查询参数在单票接口中的语义，统一改为 RESTful 的 `GET` 只读 + `POST` 触发写入。
+  - `GET /api/cn/stocks/:symbol/analysis` 不再触发生成，仅查询 D1；无记录返回 `404`。
+  - `GET /api/cn/stock/:symbol/profit-forecast` 不再触发抓取，仅查询 D1；无记录返回 `404`。
+  - 新增 `POST /api/cn/stock/:symbol/profit-forecast` 用于主动抓取并写入 D1。
 
 ### 2026年2月17日
 - **新增功能**:
