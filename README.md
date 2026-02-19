@@ -1256,7 +1256,57 @@ data: {"message":"success"}
 
 ---
 
-#### 8.4 自选股图片 OCR
+#### 8.4 个股历史评价记录
+
+分页查看某只股票在 D1 中已保存的历史评价（只读，不触发新生成）。
+
+- **URL**: `/api/cn/stocks/:symbol/analysis/history`
+- **路径参数**:
+  - `symbol` — A 股股票代码（6位数字）
+- **查询参数**:
+  - `page`（可选）— 页码，默认 `1`
+  - `pageSize`（可选）— 每页数量，默认 `20`，最大 `100`
+- **方法**:
+  - `GET` — 查询该股票的历史评价列表（按 `分析时间` 倒序）
+
+**请求示例**:
+
+```bash
+GET /api/cn/stocks/600519/analysis/history
+GET /api/cn/stocks/600519/analysis/history?page=1&pageSize=10
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "来源": "D1 历史分析",
+    "股票代码": "600519",
+    "股票简称": "贵州茅台",
+    "当前页": 1,
+    "每页数量": 10,
+    "总数量": 27,
+    "总页数": 3,
+    "历史评价": [
+      {
+        "股票代码": "600519",
+        "股票简称": "贵州茅台",
+        "分析时间": "2026-02-19 09:30:00.123",
+        "结论": "利好",
+        "核心逻辑": "......",
+        "风险提示": "......"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### 8.5 自选股图片 OCR
 
 基于 VLM（视觉模型）从截图中批量识别用户自选股列表，返回结构化 JSON。
 
@@ -1704,6 +1754,7 @@ wrangler secret put OPENAI_API_KEY
   - 新增 `POST /api/cn/stock/:symbol/profit-forecast` 用于主动抓取并写入 D1。
 - **新增功能**:
   - `POST /api/cn/stocks/:symbol/analysis` 支持 SSE 流式返回，便于前端展示“抓取输入数据 / 模型生成 / 写入 D1”等实时进度。
+  - 新增 `GET /api/cn/stocks/:symbol/analysis/history`，支持分页查看个股历史评价记录。
 
 ### 2026年2月17日
 - **新增功能**:

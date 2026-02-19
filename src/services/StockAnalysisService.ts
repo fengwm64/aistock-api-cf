@@ -44,6 +44,10 @@ interface StockAnalysisRow {
     risk_warning: string;
 }
 
+interface StockAnalysisHistoryCountRow {
+    total: number;
+}
+
 /**
  * 个股 AI 评价服务
  * 聚合新闻 / 盈利预测 / 交易数据，调用大模型生成结构化结论并写入 D1。
@@ -78,7 +82,7 @@ export class StockAnalysisService {
 【判断原则】
 1. 优先判断新闻事件的直接冲击（政策、监管、订单、业绩预告、行业供需等）。
 2. 用盈利预测验证事件是否具备基本面支撑（预期上修/下修、兑现能力）。
-3. 用交易数据判断市场是否已计价（price in）及情绪强弱。
+3. 用交易数据判断市场是否已计价及情绪强弱。
 4. 若新闻互相冲突，必须说明主次、时效性与权重依据。
 5. 若证据不足或已充分计价，应偏向“中性”。
 
@@ -774,6 +778,50 @@ JSON 结构如下：
         return {
             '来源': 'D1 历史分析',
             ...this.mapAnalysisRow(row),
+        };
+    }
+
+    static async getStockAnalysisHistory(
+        symbol: string,
+        env: Env,
+        page: number,
+        pageSize: number,
+    ): Promise<Record<string, any>> {
+        const offset = (page - 1) * pageSize;
+        const stockName = await this.getStockName(symbol, env);
+
+        const countRow = await env.DB
+            .prepare(
+                `SELECT COUNT(*) AS total
+                 FROM stock_analysis
+                 WHERE symbol = ?1`
+            )
+            .bind(symbol)
+            .first<StockAnalysisHistoryCountRow>();
+        const total = countRow?.total || 0;
+
+        const rowsResult = await env.DB
+            .prepare(
+                `SELECT a.symbol, s.name AS stock_name, a.analysis_time, a.conclusion, a.core_logic, a.risk_warning
+                 FROM stock_analysis a
+                 LEFT JOIN stocks s ON s.symbol = a.symbol
+                 WHERE a.symbol = ?1
+                 ORDER BY a.analysis_time DESC
+                 LIMIT ?2 OFFSET ?3`
+            )
+            .bind(symbol, pageSize, offset)
+            .all<StockAnalysisRow>();
+        const rows = rowsResult.results || [];
+
+        return {
+            '来源': 'D1 历史分析',
+            '股票代码': symbol,
+            '股票简称': stockName || rows[0]?.stock_name || '',
+            '当前页': page,
+            '每页数量': pageSize,
+            '总数量': total,
+            '总页数': Math.ceil(total / pageSize),
+            '历史评价': rows.map(row => this.mapAnalysisRow(row)),
         };
     }
 }
