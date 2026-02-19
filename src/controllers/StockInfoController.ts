@@ -14,6 +14,11 @@ interface StockInfoCachePayload {
     data: Record<string, any>;
 }
 
+interface BatchStockInfoResult {
+    data: Record<string, any>;
+    fromCache: boolean;
+}
+
 /**
  * 股票基本信息控制器
  */
@@ -103,14 +108,17 @@ export class StockInfoController {
     private static async getStockInfoForBatch(
         symbol: string,
         cacheService: CacheService | null,
-    ): Promise<Record<string, any>> {
+    ): Promise<BatchStockInfoResult> {
         const cacheKey = `stock_info:${symbol}`;
 
         if (cacheService) {
             try {
                 const cachedWrapper = await cacheService.get<StockInfoCachePayload>(cacheKey);
                 if (this.isValidCachePayload(cachedWrapper)) {
-                    return cachedWrapper.data;
+                    return {
+                        data: cachedWrapper.data,
+                        fromCache: true,
+                    };
                 }
             } catch (err) {
                 console.error(`Error reading stock info cache for ${symbol}:`, err);
@@ -118,14 +126,21 @@ export class StockInfoController {
         }
 
         try {
-            return await this.fetchAndMaybeCache(symbol, cacheService);
+            const data = await this.fetchAndMaybeCache(symbol, cacheService);
+            return {
+                data,
+                fromCache: false,
+            };
         } catch (err) {
             console.error(`Error fetching info for ${symbol}:`, err);
             return {
-                '市场代码': '-',
-                '股票代码': symbol,
-                '股票简称': '-',
-                '错误': err instanceof Error ? err.message : '查询失败',
+                data: {
+                    '市场代码': '-',
+                    '股票代码': symbol,
+                    '股票简称': '-',
+                    '错误': err instanceof Error ? err.message : '查询失败',
+                },
+                fromCache: false,
             };
         }
     }
@@ -158,10 +173,12 @@ export class StockInfoController {
 
         try {
             const cacheService = env.KV ? new CacheService(env.KV, ctx) : null;
-            const results = await Promise.all(symbols.map(symbol => this.getStockInfoForBatch(symbol, cacheService)));
+            const batchResults = await Promise.all(symbols.map(symbol => this.getStockInfoForBatch(symbol, cacheService)));
+            const allFromCache = batchResults.every(item => item.fromCache);
+            const results = batchResults.map(item => item.data);
             const now = Date.now();
 
-            return createResponse(200, 'success', {
+            return createResponse(200, allFromCache ? 'success (cached)' : 'success', {
                 '来源': '东方财富',
                 '更新时间': formatToChinaTime(now),
                 '股票数量': results.length,

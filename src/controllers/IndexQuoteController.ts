@@ -42,6 +42,11 @@ const HEADERS = {
     'Referer': 'https://quote.eastmoney.com/',
 };
 
+interface CachedQuoteResult {
+    quote: Record<string, any>;
+    fromCache: boolean;
+}
+
 /**
  * 获取单只指数行情
  */
@@ -201,22 +206,26 @@ export class IndexQuoteController {
         }
     }
 
-    private static async getCnQuoteWithCache(symbol: string, env: Env): Promise<Record<string, any>> {
+    private static async getCnQuoteWithCache(symbol: string, env: Env): Promise<CachedQuoteResult> {
         const cached = await this.readCachedQuote('cn', symbol, env);
-        if (cached) return cached;
+        if (cached) {
+            return { quote: cached, fromCache: true };
+        }
 
         const quote = await getIndexQuote(symbol);
         await this.writeCachedQuote('cn', symbol, quote, env);
-        return quote;
+        return { quote, fromCache: false };
     }
 
-    private static async getGbQuoteWithCache(symbol: string, env: Env): Promise<Record<string, any>> {
+    private static async getGbQuoteWithCache(symbol: string, env: Env): Promise<CachedQuoteResult> {
         const cached = await this.readCachedQuote('gb', symbol, env);
-        if (cached) return cached;
+        if (cached) {
+            return { quote: cached, fromCache: true };
+        }
 
         const quote = await getGlobalIndexQuote(symbol);
         await this.writeCachedQuote('gb', symbol, quote, env);
-        return quote;
+        return { quote, fromCache: false };
     }
 
     static async refreshPresetIndexQuotes(env: Env): Promise<void> {
@@ -307,15 +316,20 @@ export class IndexQuoteController {
         }
 
         try {
-            const quotes = await Promise.all(symbols.map(async (symbol) => {
+            const quoteResults = await Promise.all(symbols.map(async (symbol) => {
                 try {
                     return await this.getCnQuoteWithCache(symbol, env);
                 } catch (err: any) {
-                    return { '指数代码': symbol, '错误': err?.message || '查询失败' };
+                    return {
+                        quote: { '指数代码': symbol, '错误': err?.message || '查询失败' },
+                        fromCache: false,
+                    };
                 }
             }));
+            const allFromCache = quoteResults.every(item => item.fromCache);
+            const quotes = quoteResults.map(item => item.quote);
 
-            return createResponse(200, 'success', {
+            return createResponse(200, allFromCache ? 'success (cached)' : 'success', {
                 '来源': '东方财富',
                 '指数数量': quotes.length,
                 '行情': quotes,
@@ -349,15 +363,20 @@ export class IndexQuoteController {
         }
 
         try {
-            const quotes = await Promise.all(symbols.map(async (symbol) => {
+            const quoteResults = await Promise.all(symbols.map(async (symbol) => {
                 try {
                     return await this.getGbQuoteWithCache(symbol, env);
                 } catch (err: any) {
-                    return { '指数代码': symbol, '错误': err?.message || '查询失败' };
+                    return {
+                        quote: { '指数代码': symbol, '错误': err?.message || '查询失败' },
+                        fromCache: false,
+                    };
                 }
             }));
+            const allFromCache = quoteResults.every(item => item.fromCache);
+            const quotes = quoteResults.map(item => item.quote);
 
-            return createResponse(200, 'success', {
+            return createResponse(200, allFromCache ? 'success (cached)' : 'success', {
                 '来源': '东方财富',
                 '指数数量': quotes.length,
                 '行情': quotes,
