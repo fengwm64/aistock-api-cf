@@ -1148,7 +1148,7 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
   - `forceRefresh`（可选）— 设为 `1/true` 时强制重新生成评价并写入 D1
 - **方法**:
   - `POST` — 触发一次新的 AI 评价，写入 D1 后返回本次结果
-  - `GET` — 获取该股票最近一次评价记录；若数据库中无记录会自动触发一次评价并返回
+  - `GET` — 获取该股票最近一次评价记录；若数据库中无记录返回 `404`，不会自动触发新评价
 - **模型配置**:
   - 请求地址：`OPENAI_API_BASE_URL`
   - API Key：`OPENAI_API_KEY`

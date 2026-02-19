@@ -37,8 +37,7 @@ export class StockAnalysisController {
 
                 const data = await StockAnalysisService.getLatestStockAnalysis(symbol, env);
                 if (!data) {
-                    const generated = await StockAnalysisService.createStockAnalysis(symbol, env);
-                    return createResponse(200, 'success (auto-generated)', generated);
+                    return createResponse(404, `未找到该股票的分析记录: ${symbol}`);
                 }
                 return createResponse(200, 'success', data);
             } catch (error: any) {
