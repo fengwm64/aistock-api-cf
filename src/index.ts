@@ -11,12 +11,17 @@ import { WechatEventController } from './controllers/WechatEventController';
 import { ScanLoginController } from './controllers/ScanLoginController';
 import { StockAnalysisController } from './controllers/StockAnalysisController';
 import { StockOcrController } from './controllers/StockOcrController';
+import { EmService } from './services/EmInfoService';
 import { EmStockRankService } from './services/EmStockRankService';
 import {
+    HOT_STOCK_INFO_WARMUP_TOPN,
     HOT_STOCKS_CACHE_KEY,
     HOT_STOCKS_CACHE_TTL_SECONDS,
+    STOCK_INFO_CACHE_KEY_PREFIX,
+    STOCK_INFO_CACHE_TTL_SECONDS,
     HOT_STOCKS_SOURCE,
     type HotStocksCachePayload,
+    isValidStockInfoCachePayload,
     resolveCronHotTopN,
 } from './constants/cache';
 import { createResponse } from './utils/response';
@@ -112,6 +117,7 @@ const settingQueryRoutes: [RegExp, SettingQueryRouteHandler][] = [
 ];
 
 const HOT_STOCKS_CRON_EXPRESSION = '*/30 * * * *';
+const HOT_STOCK_INFO_WARMUP_CRON_EXPRESSION = '*/5 * * * *';
 
 async function refreshHotStocksCache(env: Env): Promise<void> {
     if (!env.KV) {
@@ -136,6 +142,82 @@ async function refreshHotStocksCache(env: Env): Promise<void> {
     });
 
     console.log(`[Cron][HotStocks] refreshed ${HOT_STOCKS_CACHE_KEY}, topN=${payload.topN}`);
+}
+
+async function warmupHotStockInfos(env: Env): Promise<void> {
+    if (!env.KV) {
+        console.warn('[Cron][HotStockInfoWarmup] KV binding is missing, skip warmup');
+        return;
+    }
+
+    let hotStocksPayload: HotStocksCachePayload | null = null;
+    try {
+        hotStocksPayload = await env.KV.get<HotStocksCachePayload>(HOT_STOCKS_CACHE_KEY, 'json');
+    } catch (err) {
+        console.error('[Cron][HotStockInfoWarmup] failed to read hot stocks cache:', err);
+        return;
+    }
+
+    // 需求约束：热门榜 key 不存在时不做任何事情
+    if (!hotStocksPayload) {
+        console.log('[Cron][HotStockInfoWarmup] hot stocks cache missing, skip');
+        return;
+    }
+
+    const symbolsFromRank = Array.isArray(hotStocksPayload.hotStocks)
+        ? hotStocksPayload.hotStocks.map(item => item?.['股票代码'])
+        : [];
+    const symbolsFromField = Array.isArray(hotStocksPayload.symbols)
+        ? hotStocksPayload.symbols
+        : [];
+    const baseSymbols = symbolsFromRank.length > 0 ? symbolsFromRank : symbolsFromField;
+
+    const symbols = Array.from(
+        new Set(
+            baseSymbols
+                .filter((item): item is string => typeof item === 'string')
+                .map(item => item.trim())
+                .filter(isValidAShareSymbol),
+        ),
+    ).slice(0, HOT_STOCK_INFO_WARMUP_TOPN);
+
+    if (symbols.length === 0) {
+        console.log('[Cron][HotStockInfoWarmup] no valid symbols in hot stocks cache, skip');
+        return;
+    }
+
+    const results = await Promise.all(symbols.map(async (symbol) => {
+        const cacheKey = `${STOCK_INFO_CACHE_KEY_PREFIX}${symbol}`;
+        try {
+            const cached = await env.KV.get(cacheKey, 'json');
+            if (isValidStockInfoCachePayload(cached)) {
+                return 'hit' as const;
+            }
+        } catch (err) {
+            console.error(`[Cron][HotStockInfoWarmup] failed to read ${cacheKey}:`, err);
+        }
+
+        try {
+            const data = await EmService.getStockInfo(symbol);
+            if (Object.keys(data).length > 0) {
+                await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data }), {
+                    expirationTtl: STOCK_INFO_CACHE_TTL_SECONDS,
+                });
+            }
+            return 'filled' as const;
+        } catch (err) {
+            console.error(`[Cron][HotStockInfoWarmup] failed to warmup ${cacheKey}:`, err);
+            return 'failed' as const;
+        }
+    }));
+
+    const hitCount = results.filter(status => status === 'hit').length;
+    const filledCount = results.filter(status => status === 'filled').length;
+    const failedCount = results.filter(status => status === 'failed').length;
+
+    console.log(
+        `[Cron][HotStockInfoWarmup] checked=${symbols.length}, hit=${hitCount}, filled=${filledCount}, failed=${failedCount}`,
+    );
 }
 
 function getCorsOrigin(request: Request, env: Env): string | null {
@@ -239,17 +321,28 @@ export default {
         }
     },
     async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-        if (event.cron !== HOT_STOCKS_CRON_EXPRESSION) {
-            console.log(`[Cron] Unhandled expression: ${event.cron}`);
+        if (event.cron === HOT_STOCKS_CRON_EXPRESSION) {
+            ctx.waitUntil((async () => {
+                try {
+                    await refreshHotStocksCache(env);
+                } catch (err) {
+                    console.error('[Cron][HotStocks] refresh failed:', err);
+                }
+            })());
             return;
         }
 
-        ctx.waitUntil((async () => {
-            try {
-                await refreshHotStocksCache(env);
-            } catch (err) {
-                console.error('[Cron][HotStocks] refresh failed:', err);
-            }
-        })());
+        if (event.cron === HOT_STOCK_INFO_WARMUP_CRON_EXPRESSION) {
+            ctx.waitUntil((async () => {
+                try {
+                    await warmupHotStockInfos(env);
+                } catch (err) {
+                    console.error('[Cron][HotStockInfoWarmup] failed:', err);
+                }
+            })());
+            return;
+        }
+
+        console.log(`[Cron] Unhandled expression: ${event.cron}`);
     },
 };

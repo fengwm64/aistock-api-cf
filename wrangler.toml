@@ -36,7 +36,7 @@ database_name = "aistock"
 database_id = "f6efa1f1-4414-491c-a5d6-809fb1adfb8d" # 运行 wrangler d1 create aistock 后填入
 
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/30 * * * *", "*/5 * * * *"]
 
 [[routes]]
 pattern = "extapi.aistocklink.cn"
