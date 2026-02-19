@@ -1147,8 +1147,10 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
 - **URL**: `/api/cn/stocks/:symbol/analysis`
 - **路径参数**:
   - `symbol` — A 股股票代码（6位数字）
+- **请求头（仅 POST 流式模式可选）**:
+  - `Accept: text/event-stream` — 启用 SSE 流式返回进度
 - **方法**:
-  - `POST` — 触发一次新的 AI 评价，写入 D1 后返回本次结果
+  - `POST` — 触发一次新的 AI 评价，写入 D1 后返回本次结果（支持 SSE 流式返回）
   - `GET` — 获取该股票最近一次评价记录；若数据库中无记录返回 `404`，不会自动触发新评价
 - **模型配置**:
   - 请求地址：`OPENAI_API_BASE_URL`
@@ -1165,6 +1167,46 @@ GET /api/cn/stocks/300750/news?limit=20&lastTime=1739252814
 ```bash
 POST /api/cn/stocks/600519/analysis
 GET  /api/cn/stocks/600519/analysis
+```
+
+**POST 流式返回（SSE）**:
+
+> 说明：该流式模式基于 `POST`，前端建议使用 `fetch` 读取流；浏览器原生 `EventSource` 仅支持 `GET`。
+> `model.delta` 事件为大模型接口的流式内容透传，可用于前端即时渲染输出，减少用户等待感知。
+
+```bash
+curl -N -X POST "https://your-domain/api/cn/stocks/600519/analysis" \
+  -H "Accept: text/event-stream"
+```
+
+典型事件顺序：
+- `start`：任务开始
+- `progress`：阶段进度（如 `inputs.fetching`、`model.requesting`、`db.writing`）
+- `model.delta`：大模型流式增量文本（从上游模型接口实时转发，可能出现多次）
+- `result`：最终分析结果（与普通 POST 的 `data` 内容一致）
+- `done`：任务完成
+- `error`：任务失败（包含 `code` 与 `message`）
+
+SSE 片段示例：
+
+```text
+event: start
+data: {"message":"开始刷新个股评价","symbol":"600519"}
+
+event: progress
+data: {"stage":"inputs.fetching","message":"开始抓取输入数据（新闻/盈利预测/交易）","at":"2026-02-19 16:00:00"}
+
+event: model.delta
+data: {"attempt":1,"content":"{\"结论\":\"利"}
+
+event: model.delta
+data: {"attempt":1,"content":"好\",\"核心逻辑\":\"...\""}
+
+event: result
+data: {"来源":"AI 股票评价","股票代码":"600519","结论":"利好"}
+
+event: done
+data: {"message":"success"}
 ```
 
 **POST 响应示例**:
@@ -1660,6 +1702,8 @@ wrangler secret put OPENAI_API_KEY
   - `GET /api/cn/stocks/:symbol/analysis` 不再触发生成，仅查询 D1；无记录返回 `404`。
   - `GET /api/cn/stock/:symbol/profit-forecast` 不再触发抓取，仅查询 D1；无记录返回 `404`。
   - 新增 `POST /api/cn/stock/:symbol/profit-forecast` 用于主动抓取并写入 D1。
+- **新增功能**:
+  - `POST /api/cn/stocks/:symbol/analysis` 支持 SSE 流式返回，便于前端展示“抓取输入数据 / 模型生成 / 写入 D1”等实时进度。
 
 ### 2026年2月17日
 - **新增功能**:

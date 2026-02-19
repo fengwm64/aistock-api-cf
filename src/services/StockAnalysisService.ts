@@ -19,6 +19,22 @@ interface StockAnalysisResult {
     '风险提示': string;
 }
 
+export interface StockAnalysisProgressEvent {
+    stage: string;
+    message: string;
+    at: string;
+    meta?: Record<string, unknown>;
+}
+
+type StockAnalysisProgressHandler = (event: StockAnalysisProgressEvent) => void;
+
+export interface StockAnalysisModelDeltaEvent {
+    attempt: number;
+    content: string;
+}
+
+type StockAnalysisModelDeltaHandler = (event: StockAnalysisModelDeltaEvent) => void;
+
 interface StockAnalysisRow {
     symbol: string;
     stock_name: string | null;
@@ -94,6 +110,32 @@ JSON 结构如下：
   "核心逻辑": "",
   "风险提示": ""
 }`;
+
+    private static emitProgress(
+        onProgress: StockAnalysisProgressHandler | undefined,
+        stage: string,
+        message: string,
+        meta?: Record<string, unknown>,
+    ): void {
+        if (!onProgress) return;
+        try {
+            onProgress({
+                stage,
+                message,
+                at: formatToChinaTime(Date.now()),
+                ...(meta ? { meta } : {}),
+            });
+        } catch {
+            // 进度回调失败不影响主流程
+        }
+    }
+
+    private static getErrorMessage(reason: unknown, fallback: string): string {
+        if (reason instanceof Error && reason.message) {
+            return reason.message;
+        }
+        return fallback;
+    }
 
     private static normalizeText(value: unknown): string {
         if (typeof value !== 'string') return '';
@@ -239,6 +281,69 @@ JSON 结构如下：
             .replace('{trading_data}', tradingData);
     }
 
+    private static extractTextFromModelField(value: unknown): string {
+        if (typeof value === 'string') {
+            return value;
+        }
+
+        if (Array.isArray(value)) {
+            return value.map((item: any) => {
+                if (typeof item === 'string') return item;
+                if (item && typeof item === 'object' && typeof item.text === 'string') return item.text;
+                return '';
+            }).join('');
+        }
+
+        return '';
+    }
+
+    private static extractModelFinalContent(data: any): string {
+        const choice = data?.choices?.[0];
+        if (!choice) return '';
+
+        const messageContent = this.extractTextFromModelField(choice?.message?.content);
+        if (messageContent) return messageContent;
+
+        const textContent = this.extractTextFromModelField(choice?.text);
+        if (textContent) return textContent;
+
+        return '';
+    }
+
+    private static extractModelStreamDelta(data: any): string {
+        const choice = data?.choices?.[0];
+        if (!choice) return '';
+
+        const deltaContent = this.extractTextFromModelField(choice?.delta?.content);
+        if (deltaContent) return deltaContent;
+
+        const messageContent = this.extractTextFromModelField(choice?.message?.content);
+        if (messageContent) return messageContent;
+
+        const textContent = this.extractTextFromModelField(choice?.text);
+        if (textContent) return textContent;
+
+        return '';
+    }
+
+    private static buildModelRequestBody(prompt: string, env: Env, stream: boolean): Record<string, unknown> {
+        return {
+            model: env.EVA_MODEL,
+            temperature: 0.2,
+            ...(stream ? { stream: true } : {}),
+            messages: [
+                {
+                    role: 'system',
+                    content: '你是严格的 JSON 输出助手。必须只输出 JSON，不得输出多余解释。',
+                },
+                {
+                    role: 'user',
+                    content: prompt,
+                },
+            ],
+        };
+    }
+
     private static async requestModel(prompt: string, env: Env): Promise<string> {
         if (!env.OPENAI_API_BASE_URL) {
             throw new Error('缺少 OPENAI_API_BASE_URL 配置');
@@ -260,20 +365,7 @@ JSON 结构如下：
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
                 },
-                body: JSON.stringify({
-                    model: env.EVA_MODEL,
-                    temperature: 0.2,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: '你是严格的 JSON 输出助手。必须只输出 JSON，不得输出多余解释。',
-                        },
-                        {
-                            role: 'user',
-                            content: prompt,
-                        },
-                    ],
-                }),
+                body: JSON.stringify(this.buildModelRequestBody(prompt, env, false)),
                 signal: controller.signal,
             });
 
@@ -283,31 +375,192 @@ JSON 结构如下：
             }
 
             const data: any = await response.json();
-            const content = data?.choices?.[0]?.message?.content;
-            if (typeof content !== 'string' || !content.trim()) {
+            const content = this.extractModelFinalContent(data).trim();
+            if (!content) {
                 throw new Error('大模型返回内容为空');
             }
 
-            return content.trim();
+            return content;
         } finally {
             clearTimeout(timeout);
         }
     }
 
-    private static async generateStockAnalysis(newsText: string, forecastData: string, tradingData: string, env: Env): Promise<StockAnalysisResult> {
+    private static async requestModelStream(
+        prompt: string,
+        env: Env,
+        attempt: number,
+        onModelDelta: StockAnalysisModelDeltaHandler,
+    ): Promise<string> {
+        if (!env.OPENAI_API_BASE_URL) {
+            throw new Error('缺少 OPENAI_API_BASE_URL 配置');
+        }
+        if (!env.OPENAI_API_KEY) {
+            throw new Error('缺少 OPENAI_API_KEY 配置');
+        }
+        if (!env.EVA_MODEL) {
+            throw new Error('缺少 EVA_MODEL 配置');
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 45_000);
+
+        try {
+            const response = await fetch(env.OPENAI_API_BASE_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+                },
+                body: JSON.stringify(this.buildModelRequestBody(prompt, env, true)),
+                signal: controller.signal,
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`大模型接口请求失败: ${response.status} ${errText.slice(0, 300)}`);
+            }
+
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                const data: any = await response.json();
+                const content = this.extractModelFinalContent(data).trim();
+                if (!content) {
+                    throw new Error('大模型流式返回内容为空');
+                }
+                try {
+                    onModelDelta({ attempt, content });
+                } catch {
+                    // 忽略转发回调异常，不影响主流程
+                }
+                return content;
+            }
+
+            if (!response.body) {
+                throw new Error('大模型流式响应体为空');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let fullContent = '';
+            let doneReceived = false;
+
+            const emitDelta = (delta: string) => {
+                if (!delta) return;
+                fullContent += delta;
+                try {
+                    onModelDelta({ attempt, content: delta });
+                } catch {
+                    // 忽略转发回调异常，不影响主流程
+                }
+            };
+
+            const consumePayload = (payload: string) => {
+                if (!payload) return;
+                if (payload === '[DONE]') {
+                    doneReceived = true;
+                    return;
+                }
+
+                try {
+                    const parsed = JSON.parse(payload);
+                    const delta = this.extractModelStreamDelta(parsed);
+                    if (delta) {
+                        emitDelta(delta);
+                    }
+                } catch {
+                    // 兼容非 JSON 行
+                }
+            };
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                let newlineIndex = buffer.indexOf('\n');
+                while (newlineIndex >= 0) {
+                    const rawLine = buffer.slice(0, newlineIndex);
+                    buffer = buffer.slice(newlineIndex + 1);
+
+                    const line = rawLine.trim();
+                    if (line) {
+                        if (!line.startsWith(':') && !line.startsWith('event:') && !line.startsWith('id:') && !line.startsWith('retry:')) {
+                            if (line.startsWith('data:')) {
+                                consumePayload(line.slice(5).trim());
+                            } else {
+                                consumePayload(line);
+                            }
+                        }
+                    }
+
+                    if (doneReceived) break;
+                    newlineIndex = buffer.indexOf('\n');
+                }
+
+                if (doneReceived) break;
+            }
+
+            const tail = buffer.trim();
+            if (!doneReceived && tail) {
+                if (tail.startsWith('data:')) {
+                    consumePayload(tail.slice(5).trim());
+                } else {
+                    consumePayload(tail);
+                }
+            }
+
+            const finalContent = fullContent.trim();
+            if (!finalContent) {
+                throw new Error('大模型流式返回内容为空');
+            }
+            return finalContent;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    private static async generateStockAnalysis(
+        newsText: string,
+        forecastData: string,
+        tradingData: string,
+        env: Env,
+        onProgress?: StockAnalysisProgressHandler,
+        onModelDelta?: StockAnalysisModelDeltaHandler,
+    ): Promise<StockAnalysisResult> {
         let lastError = '模型返回格式异常';
         const today = this.getTodayInChina();
 
         for (let attempt = 1; attempt <= 2; attempt++) {
+            this.emitProgress(onProgress, 'model.requesting', `调用模型生成评价（第 ${attempt} 次）`, { attempt });
             const correction = attempt === 1
                 ? ''
                 : `\n\n【上次输出问题】\n${lastError}\n请严格修正并仅输出 JSON。`;
             const prompt = this.buildPrompt(newsText, forecastData, tradingData, today) + correction;
 
-            const raw = await this.requestModel(prompt, env);
+            const raw = onModelDelta
+                ? await this.requestModelStream(prompt, env, attempt, onModelDelta)
+                : await this.requestModel(prompt, env);
+            this.emitProgress(onProgress, 'model.responded', `模型返回完成（第 ${attempt} 次）`, {
+                attempt,
+                contentLength: raw.length,
+            });
             const parsed = this.parseModelResult(raw);
             if (!parsed) {
                 lastError = 'JSON 结构不符合要求';
+                if (attempt < 2) {
+                    this.emitProgress(onProgress, 'model.retrying', `模型输出解析失败，将重试（第 ${attempt + 1} 次）`, {
+                        attempt,
+                        reason: lastError,
+                    });
+                } else {
+                    this.emitProgress(onProgress, 'model.failed', '模型输出解析失败，无法生成有效结果', {
+                        attempt,
+                        reason: lastError,
+                    });
+                }
                 continue;
             }
 
@@ -316,6 +569,17 @@ JSON 结构如下：
                 return parsed;
             }
             lastError = validationError;
+            if (attempt < 2) {
+                this.emitProgress(onProgress, 'model.retrying', `模型输出校验失败，将重试（第 ${attempt + 1} 次）`, {
+                    attempt,
+                    reason: lastError,
+                });
+            } else {
+                this.emitProgress(onProgress, 'model.failed', '模型输出校验失败，无法生成有效结果', {
+                    attempt,
+                    reason: lastError,
+                });
+            }
         }
 
         throw new Error(`大模型输出不符合约束: ${lastError}`);
@@ -340,11 +604,25 @@ JSON 结构如下：
         };
     }
 
-    static async createStockAnalysis(symbol: string, env: Env): Promise<Record<string, any>> {
+    static async createStockAnalysis(
+        symbol: string,
+        env: Env,
+        onProgress?: StockAnalysisProgressHandler,
+        onModelDelta?: StockAnalysisModelDeltaHandler,
+    ): Promise<Record<string, any>> {
+        this.emitProgress(onProgress, 'start', '开始生成个股评价', { symbol });
+
         const stockName = await this.getStockName(symbol, env);
         if (!stockName) {
+            this.emitProgress(onProgress, 'stock.not_found', '股票代码不存在', { symbol });
             throw new Error(`股票代码不存在: ${symbol}`);
         }
+
+        this.emitProgress(onProgress, 'stock.validated', '股票代码校验通过', {
+            symbol,
+            stockName,
+        });
+        this.emitProgress(onProgress, 'inputs.fetching', '开始抓取输入数据（新闻/盈利预测/交易）');
 
         const [newsResult, forecastResult, tradingResult] = await Promise.allSettled([
             this.fetchStockNewsDigest(symbol, env),
@@ -358,14 +636,52 @@ JSON 结构如下：
             : '';
         const tradingData = tradingResult.status === 'fulfilled'
             ? tradingResult.value
-            : { '错误': tradingResult.reason instanceof Error ? tradingResult.reason.message : '交易数据获取失败' };
+            : { '错误': this.getErrorMessage(tradingResult.reason, '交易数据获取失败') };
+
+        if (newsResult.status === 'fulfilled') {
+            this.emitProgress(onProgress, 'inputs.news.ready', '个股新闻抓取完成', { count: newsList.length });
+        } else {
+            this.emitProgress(onProgress, 'inputs.news.failed', '个股新闻抓取失败，已降级继续分析', {
+                reason: this.getErrorMessage(newsResult.reason, '新闻抓取失败'),
+            });
+        }
+
+        if (forecastResult.status === 'fulfilled') {
+            this.emitProgress(onProgress, 'inputs.forecast.ready', '盈利预测抓取完成', {
+                hasSummary: Boolean(forecastSummary),
+            });
+        } else {
+            this.emitProgress(onProgress, 'inputs.forecast.failed', '盈利预测抓取失败，已降级继续分析', {
+                reason: this.getErrorMessage(forecastResult.reason, '盈利预测抓取失败'),
+            });
+        }
+
+        if (tradingResult.status === 'fulfilled') {
+            this.emitProgress(onProgress, 'inputs.trading.ready', '交易数据抓取完成');
+        } else {
+            this.emitProgress(onProgress, 'inputs.trading.failed', '交易数据抓取失败，已降级继续分析', {
+                reason: this.getErrorMessage(tradingResult.reason, '交易数据抓取失败'),
+            });
+        }
 
         const newsText = this.buildNewsText(newsList);
         const forecastData = forecastSummary || '暂无业绩预测摘要';
         const tradingText = JSON.stringify(tradingData, null, 2);
+        this.emitProgress(onProgress, 'analysis.prepared', '分析输入数据准备完成', {
+            newsCount: newsList.length,
+            hasForecastSummary: Boolean(forecastSummary),
+        });
 
-        const modelResult = await this.generateStockAnalysis(newsText, forecastData, tradingText, env);
+        const modelResult = await this.generateStockAnalysis(
+            newsText,
+            forecastData,
+            tradingText,
+            env,
+            onProgress,
+            onModelDelta,
+        );
         const analysisTime = this.formatToChinaTimeWithMs(Date.now());
+        this.emitProgress(onProgress, 'db.writing', '开始写入 D1');
 
         await env.DB
             .prepare(
@@ -382,6 +698,12 @@ JSON 结构如下：
                 modelResult['风险提示'],
             )
             .run();
+
+        this.emitProgress(onProgress, 'completed', '个股评价生成完成', {
+            symbol,
+            analysisTime,
+            conclusion: modelResult['结论'],
+        });
 
         return {
             '来源': 'AI 股票评价',
