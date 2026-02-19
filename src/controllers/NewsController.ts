@@ -18,6 +18,13 @@ export class NewsController {
 
     /** 固定签名 */
     private static readonly SIGN = '9f8797a1f4de66c2370f7a03990d2737';
+    /** 摘要前缀样式：`【...】` */
+    private static readonly BRACKET_PREFIX_PATTERN = /^【[^】]*】\s*/;
+
+    private static cleanSummaryPrefix(summary: unknown): string {
+        if (typeof summary !== 'string') return '';
+        return summary.trim().replace(this.BRACKET_PREFIX_PATTERN, '').trim();
+    }
 
     /**
      * 通用获取新闻方法
@@ -70,7 +77,7 @@ export class NewsController {
                     'ID': article.id || '',
                     '时间': formatToChinaTime(article.ctime * 1000), // Unix 秒转毫秒
                     '标题': (article.title || '').trim(),
-                    '摘要': (article.brief || '').trim(),
+                    '摘要': this.cleanSummaryPrefix(article.brief),
                     '作者': (article.author || article.source || '').trim(),
                     '标签': [],
                     '链接': link,
@@ -293,8 +300,7 @@ export class NewsController {
             let brief = '';
             $('[class*="detail-brief"]').each((_, elem) => {
                 const text = $(elem).text().trim();
-                // 去除【】包裹的内容
-                brief = text.replace(/【[^】]*】/g, '').trim();
+                brief = this.cleanSummaryPrefix(text);
                 return false; // 找到第一个即停止
             });
 
