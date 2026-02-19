@@ -320,7 +320,8 @@ GET /api/cn/stocks?symbol=600000&market=SH
 
 - **URL**: `/api/cn/stock/infos?symbols=`
 - **参数**: `symbols` — 逗号分隔的股票代码，单次最多 20 只
-- **缓存**: 无
+- **缓存**: Workers KV（key: `stock_info:{symbol}`，硬 TTL 14 天，命中不续期）
+- **读取策略**: 读缓存优先；缓存缺失或结构不合法时回源东方财富并回填 KV
 
 **请求示例**:
 
@@ -926,7 +927,7 @@ GET /api/gb/index/quotes?symbols=HXC,XIN9,HSTECH
 
 - **URL**: `/api/cn/market/stockrank`
 - **参数**: `count` — 返回数量，默认 8，范围 1-100
-- **缓存**: 无（实时数据）
+- **缓存**: 优先读 Workers KV（key: `hot_stocks:v1`，TTL 30 分钟）；未命中或数量不足时回源并异步回填
 
 **请求示例**:
 
@@ -941,7 +942,7 @@ GET /api/cn/market/stockrank?count=8
   "code": 200,
   "message": "success",
   "data": {
-    "来源": "东方财富 http://guba.eastmoney.com/rank/",
+    "来源": "东方财富 https://guba.eastmoney.com/rank/",
     "更新时间": "2026-02-08 14:00:00",
     "人气榜": [
       { "当前排名": 1, "股票代码": "000001" },
@@ -1710,6 +1711,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `OPENAI_API_KEY` | 大模型接口密钥 |
 | `EVA_MODEL` | 个股评价使用的模型名 |
 | `OCR_MODEL` | 自选股图片 OCR 使用的模型名 |
+| `CRON_HOT_TOPN` | 人气榜缓存写入数量上限（默认 8，最大 100） |
 
 设置方式：
 
@@ -1721,6 +1723,54 @@ wrangler secret put FRONTEND_URL
 wrangler secret put OPENAI_API_KEY
 # 可选，若不想放 secret：在 wrangler.toml 的 [vars] 写入 COOKIE_DOMAIN / CORS_ALLOW_ORIGIN
 ```
+
+---
+
+## 定时任务（Cron）与缓存协作
+
+当前项目已启用两个 Cron 任务，并通过 KV 与接口请求协作：
+
+```toml
+[triggers]
+crons = ["*/30 * * * *", "*/5 * * * *"]
+```
+
+### 1. 缓存 Key 与 TTL
+
+| Key | 内容 | TTL | 说明 |
+|-----|------|-----|------|
+| `hot_stocks:v1` | 热门股票列表（含 symbol 与排名） | 30 分钟 | 由 Cron 任务 A 定期刷新，`stockrank` 接口可读 |
+| `stock_info:{symbol}` | 单只股票基础信息（`{ timestamp, data }`） | 14 天 | 硬过期，不滑动续期 |
+
+### 2. 任务 A（`*/30 * * * *`）
+
+每 30 分钟执行一次：
+1. 拉取东方财富热门人气榜。
+2. 按 `CRON_HOT_TOPN` 截断（默认 8）。
+3. 写入 `hot_stocks:v1`（TTL 30 分钟）。
+
+### 3. 任务 B（`*/5 * * * *`）
+
+每 5 分钟执行一次：
+1. 读取 `hot_stocks:v1`。
+2. 如果 key 不存在，直接跳过，不做额外请求。
+3. 如果存在，取前 8 个 symbol。
+4. 检查对应 `stock_info:{symbol}` 是否存在且结构合法（`{ timestamp, data }`）。
+5. 对缺失或坏缓存项回源 `EmService.getStockInfo(symbol)` 并写入 14 天 TTL。
+
+### 4. 与接口请求的协作关系
+
+1. `/api/cn/market/stockrank`
+   先读 `hot_stocks:v1`；未命中或数量不足时实时回源并异步回填。  
+   这使得「Cron 预热」和「在线请求回填」形成互补。
+
+2. `/api/cn/stock/infos`
+   读 `stock_info:{symbol}` 优先；缺失/坏缓存时回源并回填。  
+   因为是硬 TTL，访问命中不会刷新生存时间。
+
+### 5. 扩展预留
+
+`*/5` 任务的结构已按“多任务 runner”设计，后续可无缝增加指数缓存预热任务（例如 index quotes）。
 
 ---
 
@@ -1756,6 +1806,11 @@ wrangler secret put OPENAI_API_KEY
 - **新增功能**:
   - `POST /api/cn/stocks/:symbol/analysis` 支持 SSE 流式返回，便于前端展示“抓取输入数据 / 模型生成 / 写入 D1”等实时进度。
   - 新增 `GET /api/cn/stocks/:symbol/analysis/history`，支持分页查看个股历史评价记录。
+  - 新增 Cloudflare Cron + KV 缓存协作机制：
+    - `*/30` 定时刷新热门人气榜缓存 `hot_stocks:v1`
+    - `*/5` 定时检查热门股前 8 的 `stock_info:{symbol}` 缓存并补齐缺失项
+    - `/api/cn/market/stockrank` 改为优先读 `hot_stocks:v1`，未命中时回源并回填
+    - `/api/cn/stock/infos` 使用 `stock_info:{symbol}`，并保持 14 天硬 TTL（命中不续期）
 
 ### 2026年2月17日
 - **新增功能**:

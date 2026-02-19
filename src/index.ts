@@ -26,6 +26,7 @@ import {
 } from './constants/cache';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
+import { isAShareTradingTime } from './utils/tradingTime';
 
 /**
  * Cloudflare Worker 入口
@@ -220,6 +221,16 @@ async function warmupHotStockInfos(env: Env): Promise<void> {
     );
 }
 
+async function warmupIndexQuotesIfTradingTime(env: Env): Promise<void> {
+    const inTradingTime = await isAShareTradingTime();
+    if (!inTradingTime) {
+        console.log('[Cron][IndexWarmup] skip: not in A-share trading time');
+        return;
+    }
+
+    await IndexQuoteController.refreshPresetIndexQuotes(env);
+}
+
 function getCorsOrigin(request: Request, env: Env): string | null {
     if (env.CORS_ALLOW_ORIGIN && env.CORS_ALLOW_ORIGIN !== '*') return env.CORS_ALLOW_ORIGIN;
     if (env.FRONTEND_URL) {
@@ -336,6 +347,7 @@ export default {
             ctx.waitUntil((async () => {
                 try {
                     await warmupHotStockInfos(env);
+                    await warmupIndexQuotesIfTradingTime(env);
                 } catch (err) {
                     console.error('[Cron][HotStockInfoWarmup] failed:', err);
                 }

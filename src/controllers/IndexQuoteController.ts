@@ -4,6 +4,11 @@ import { createResponse } from '../utils/response';
 import { isValidAShareSymbol, isValidGlobalIndexSymbol } from '../utils/validator';
 import { Env } from '../index';
 import { eastmoneyThrottler } from '../utils/throttlers';
+import {
+    INDEX_QUOTE_CACHE_KEY_PREFIX,
+    INDEX_QUOTE_CACHE_TTL_SECONDS,
+    isValidStockInfoCachePayload,
+} from '../constants/cache';
 
 /** 单次最多查询数量 */
 const MAX_SYMBOLS = 20;
@@ -151,6 +156,101 @@ async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>>
  * 指数实时行情控制器
  */
 export class IndexQuoteController {
+    private static readonly CRON_CN_INDEX_SYMBOLS = ['000001', '399001', '399006'] as const;
+    private static readonly CRON_GB_INDEX_SYMBOLS = ['HXC', 'XIN9', 'HSTECH'] as const;
+
+    private static buildIndexCacheKey(market: 'cn' | 'gb', symbol: string): string {
+        return `${INDEX_QUOTE_CACHE_KEY_PREFIX}${market}:${symbol.toUpperCase()}`;
+    }
+
+    private static async readCachedQuote(
+        market: 'cn' | 'gb',
+        symbol: string,
+        env: Env,
+    ): Promise<Record<string, any> | null> {
+        if (!env.KV) return null;
+
+        const cacheKey = this.buildIndexCacheKey(market, symbol);
+        try {
+            const cached = await env.KV.get(cacheKey, 'json');
+            if (!isValidStockInfoCachePayload(cached)) return null;
+            return cached.data;
+        } catch (err) {
+            console.error(`Error reading index quote cache ${cacheKey}:`, err);
+            return null;
+        }
+    }
+
+    private static async writeCachedQuote(
+        market: 'cn' | 'gb',
+        symbol: string,
+        quote: Record<string, any>,
+        env: Env,
+    ): Promise<void> {
+        if (!env.KV || Object.keys(quote).length === 0) return;
+
+        const cacheKey = this.buildIndexCacheKey(market, symbol);
+        try {
+            await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data: quote }), {
+                expirationTtl: INDEX_QUOTE_CACHE_TTL_SECONDS,
+            });
+        } catch (err) {
+            console.error(`Error writing index quote cache ${cacheKey}:`, err);
+        }
+    }
+
+    private static async getCnQuoteWithCache(symbol: string, env: Env): Promise<Record<string, any>> {
+        const cached = await this.readCachedQuote('cn', symbol, env);
+        if (cached) return cached;
+
+        const quote = await getIndexQuote(symbol);
+        await this.writeCachedQuote('cn', symbol, quote, env);
+        return quote;
+    }
+
+    private static async getGbQuoteWithCache(symbol: string, env: Env): Promise<Record<string, any>> {
+        const cached = await this.readCachedQuote('gb', symbol, env);
+        if (cached) return cached;
+
+        const quote = await getGlobalIndexQuote(symbol);
+        await this.writeCachedQuote('gb', symbol, quote, env);
+        return quote;
+    }
+
+    static async refreshPresetIndexQuotes(env: Env): Promise<void> {
+        if (!env.KV) {
+            console.warn('[Cron][IndexWarmup] KV binding is missing, skip warmup');
+            return;
+        }
+
+        const tasks: Promise<void>[] = [];
+
+        for (const symbol of this.CRON_CN_INDEX_SYMBOLS) {
+            tasks.push((async () => {
+                const quote = await getIndexQuote(symbol);
+                await this.writeCachedQuote('cn', symbol, quote, env);
+            })());
+        }
+
+        for (const symbol of this.CRON_GB_INDEX_SYMBOLS) {
+            tasks.push((async () => {
+                const quote = await getGlobalIndexQuote(symbol);
+                await this.writeCachedQuote('gb', symbol, quote, env);
+            })());
+        }
+
+        const results = await Promise.allSettled(tasks);
+        const failed = results.filter(item => item.status === 'rejected').length;
+        const succeeded = results.length - failed;
+
+        if (failed > 0) {
+            console.error(`[Cron][IndexWarmup] done with partial failures: ok=${succeeded}, failed=${failed}`);
+            return;
+        }
+
+        console.log(`[Cron][IndexWarmup] refreshed index caches: total=${results.length}`);
+    }
+
     static async getIndexQuotes(request: Request, env: Env, ctx: ExecutionContext) {
         const url = new URL(request.url);
         const symbolsParam = url.searchParams.get('symbols');
@@ -175,13 +275,13 @@ export class IndexQuoteController {
         }
 
         try {
-            const results = await Promise.allSettled(symbols.map(s => getIndexQuote(s)));
-
-            const quotes = results.map((r, i) =>
-                r.status === 'fulfilled'
-                    ? r.value
-                    : { '指数代码': symbols[i], '错误': r.reason?.message || '查询失败' }
-            );
+            const quotes = await Promise.all(symbols.map(async (symbol) => {
+                try {
+                    return await this.getCnQuoteWithCache(symbol, env);
+                } catch (err: any) {
+                    return { '指数代码': symbol, '错误': err?.message || '查询失败' };
+                }
+            }));
 
             return createResponse(200, 'success', {
                 '来源': '东方财富',
@@ -217,13 +317,13 @@ export class IndexQuoteController {
         }
 
         try {
-            const results = await Promise.allSettled(symbols.map(s => getGlobalIndexQuote(s)));
-
-            const quotes = results.map((r, i) =>
-                r.status === 'fulfilled'
-                    ? r.value
-                    : { '指数代码': symbols[i], '错误': r.reason?.message || '查询失败' }
-            );
+            const quotes = await Promise.all(symbols.map(async (symbol) => {
+                try {
+                    return await this.getGbQuoteWithCache(symbol, env);
+                } catch (err: any) {
+                    return { '指数代码': symbol, '错误': err?.message || '查询失败' };
+                }
+            }));
 
             return createResponse(200, 'success', {
                 '来源': '东方财富',
