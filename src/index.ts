@@ -11,7 +11,14 @@ import { WechatEventController } from './controllers/WechatEventController';
 import { ScanLoginController } from './controllers/ScanLoginController';
 import { StockAnalysisController } from './controllers/StockAnalysisController';
 import { StockOcrController } from './controllers/StockOcrController';
-import { EmStockRankService, type StockRankResult } from './services/EmStockRankService';
+import { EmStockRankService } from './services/EmStockRankService';
+import {
+    HOT_STOCKS_CACHE_KEY,
+    HOT_STOCKS_CACHE_TTL_SECONDS,
+    HOT_STOCKS_SOURCE,
+    type HotStocksCachePayload,
+    resolveCronHotTopN,
+} from './constants/cache';
 import { createResponse } from './utils/response';
 import { isValidAShareSymbol } from './utils/validator';
 
@@ -40,15 +47,6 @@ export interface Env {
     EVA_MODEL: string;
     OCR_MODEL: string;
     CRON_HOT_TOPN?: string;
-}
-
-interface HotStocksCachePayload {
-    timestamp: number;
-    generatedAt: string;
-    source: string;
-    topN: number;
-    symbols: string[];
-    hotStocks: StockRankResult[];
 }
 
 /** 带数字 ID 参数的路由 */
@@ -114,23 +112,6 @@ const settingQueryRoutes: [RegExp, SettingQueryRouteHandler][] = [
 ];
 
 const HOT_STOCKS_CRON_EXPRESSION = '*/30 * * * *';
-const HOT_STOCKS_CACHE_KEY = 'hot_stocks:v1';
-const HOT_STOCKS_CACHE_TTL_SECONDS = 30 * 60;
-const DEFAULT_CRON_HOT_TOPN = 8;
-const MAX_CRON_HOT_TOPN = 100;
-
-function parsePositiveInteger(value: unknown): number | null {
-    const parsed = typeof value === 'number' ? value : Number(String(value ?? '').trim());
-    if (!Number.isFinite(parsed)) return null;
-    if (!Number.isInteger(parsed) || parsed <= 0) return null;
-    return parsed;
-}
-
-function resolveCronHotTopN(env: Env): number {
-    const parsed = parsePositiveInteger(env.CRON_HOT_TOPN);
-    if (parsed === null) return DEFAULT_CRON_HOT_TOPN;
-    return Math.min(MAX_CRON_HOT_TOPN, parsed);
-}
 
 async function refreshHotStocksCache(env: Env): Promise<void> {
     if (!env.KV) {
@@ -138,13 +119,13 @@ async function refreshHotStocksCache(env: Env): Promise<void> {
         return;
     }
 
-    const topN = resolveCronHotTopN(env);
+    const topN = resolveCronHotTopN(env.CRON_HOT_TOPN);
     const rankList = await EmStockRankService.getStockHotRank();
     const hotStocks = rankList.slice(0, topN);
     const payload: HotStocksCachePayload = {
         timestamp: Date.now(),
         generatedAt: new Date().toISOString(),
-        source: '东方财富 https://guba.eastmoney.com/rank/',
+        source: HOT_STOCKS_SOURCE,
         topN: hotStocks.length,
         symbols: hotStocks.map(item => item['股票代码']),
         hotStocks,
