@@ -1726,6 +1726,7 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `CRON_HOT_TOPN` | 人气榜缓存写入数量上限（默认 8，最大 100） |
 | `CRON_CN_INDEX_SYMBOLS` | `*/5` 指数预热任务的 A 股指数列表（逗号分隔），默认 `000001,399001,399006` |
 | `CRON_GB_INDEX_SYMBOLS` | `*/5` 指数预热任务的全球指数列表（逗号分隔），默认 `HXC,XIN9,HSTECH` |
+| `CRON_ANALYSIS_CONCURRENCY` | 自选股评价刷新任务并发度（默认 2，最大 6） |
 
 设置方式：
 
@@ -1742,11 +1743,17 @@ wrangler secret put OPENAI_API_KEY
 
 ## 定时任务（Cron）与缓存协作
 
-当前项目已启用两个 Cron 任务，并通过 KV 与接口请求协作：
+当前项目已启用三类 Cron 任务，并通过 KV 预热与 D1 刷新协作：
 
 ```toml
 [triggers]
-crons = ["*/30 * * * *", "*/5 * * * *"]
+crons = [
+  "*/30 * * * *",
+  "*/5 * * * *",
+  "30 1 * * 1-5", # UTC -> 北京时间 09:30
+  "0 5 * * 1-5",  # UTC -> 北京时间 13:00
+  "0 7 * * 1-5"   # UTC -> 北京时间 15:00
+]
 ```
 
 ### 1. 缓存 Key 与 TTL
@@ -1796,9 +1803,23 @@ crons = ["*/30 * * * *", "*/5 * * * *"]
    读 `index_quote:*` 优先；缺失时回源并回填。  
    与 `*/5` 的交易时段指数预热任务协同，保证交易时段高频更新。
 
-### 5. 扩展预留
+### 5. 任务 C（交易日 `09:30` / `13:00` / `15:00`）
 
-`*/5` 任务已包含“热门股 info 补齐 + 指数缓存预热”两个子任务，后续可继续扩展更多预热项（如行业板块指数）。
+在交易日的三个关键时间点（北京时间）执行一次“全量自选股评价刷新”：
+1. 先判断当前是否处于 A 股交易时段（含节假日判断）；若不是则直接跳过。
+2. 从 `user_stocks` 读取全体用户自选股，并按 symbol 去重。
+3. 对每个 symbol 调用 `StockAnalysisService.createStockAnalysis(symbol, env)`，将新评价写入 D1 `stock_analysis`。
+4. 并发度由 `CRON_ANALYSIS_CONCURRENCY` 控制（默认 2，最大 6）。
+
+### 6. 扩展预留
+
+当前 Cron 体系已覆盖：
+- 热门榜缓存刷新
+- 热门股信息补齐
+- 指数交易时段预热
+- 全体用户自选股的定点评价刷新
+
+后续可继续扩展更多预热项（如行业板块指数）。
 
 ---
 
@@ -1838,6 +1859,7 @@ crons = ["*/30 * * * *", "*/5 * * * *"]
     - `*/30` 定时刷新热门人气榜缓存 `hot_stocks:v1`
     - `*/5` 定时检查热门股前 8 的 `stock_info:{symbol}` 缓存并补齐缺失项
     - `*/5` 在交易时段内定时刷新指数缓存（A 股 + 全球指数）
+    - 交易日 `09:30` / `13:00` / `15:00` 定时刷新全体用户自选股评价并写入 `stock_analysis`
     - `/api/cn/market/stockrank` 改为优先读 `hot_stocks:v1`，未命中时回源并回填
     - `/api/cn/stock/infos` 使用 `stock_info:{symbol}`，并保持 14 天硬 TTL（命中不续期）
     - `/api/cn/index/quotes`、`/api/gb/index/quotes` 改为优先读 `index_quote:*`，未命中时回源并回填

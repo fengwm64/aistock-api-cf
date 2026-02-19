@@ -13,6 +13,7 @@ import { StockAnalysisController } from './controllers/StockAnalysisController';
 import { StockOcrController } from './controllers/StockOcrController';
 import { EmService } from './services/EmInfoService';
 import { EmStockRankService } from './services/EmStockRankService';
+import { StockAnalysisService } from './services/StockAnalysisService';
 import {
     HOT_STOCK_INFO_WARMUP_TOPN,
     HOT_STOCKS_CACHE_KEY,
@@ -55,6 +56,7 @@ export interface Env {
     CRON_HOT_TOPN?: string;
     CRON_CN_INDEX_SYMBOLS?: string;
     CRON_GB_INDEX_SYMBOLS?: string;
+    CRON_ANALYSIS_CONCURRENCY?: string;
 }
 
 /** 带数字 ID 参数的路由 */
@@ -121,6 +123,19 @@ const settingQueryRoutes: [RegExp, SettingQueryRouteHandler][] = [
 
 const HOT_STOCKS_CRON_EXPRESSION = '*/30 * * * *';
 const HOT_STOCK_INFO_WARMUP_CRON_EXPRESSION = '*/5 * * * *';
+const FAVORITES_ANALYSIS_REFRESH_CRON_EXPRESSIONS = new Set([
+    '30 1 * * 1-5', // UTC -> 北京时间 09:30
+    '0 5 * * 1-5',  // UTC -> 北京时间 13:00
+    '0 7 * * 1-5',  // UTC -> 北京时间 15:00
+]);
+const DEFAULT_ANALYSIS_REFRESH_CONCURRENCY = 2;
+const MAX_ANALYSIS_REFRESH_CONCURRENCY = 6;
+
+function resolveAnalysisRefreshConcurrency(raw: string | undefined): number {
+    const parsed = Number(String(raw ?? '').trim());
+    if (!Number.isInteger(parsed) || parsed <= 0) return DEFAULT_ANALYSIS_REFRESH_CONCURRENCY;
+    return Math.min(parsed, MAX_ANALYSIS_REFRESH_CONCURRENCY);
+}
 
 async function refreshHotStocksCache(env: Env): Promise<void> {
     if (!env.KV) {
@@ -231,6 +246,65 @@ async function warmupIndexQuotesIfTradingTime(env: Env): Promise<void> {
     }
 
     await IndexQuoteController.refreshPresetIndexQuotes(env);
+}
+
+async function refreshFavoritesStockAnalysis(env: Env): Promise<void> {
+    const inTradingTime = await isAShareTradingTime();
+    if (!inTradingTime) {
+        console.log('[Cron][FavoritesAnalysis] skip: not in A-share trading time');
+        return;
+    }
+
+    const queryResult = await env.DB
+        .prepare(
+            `SELECT DISTINCT symbol
+             FROM user_stocks
+             ORDER BY symbol ASC`,
+        )
+        .all<{ symbol: string }>();
+
+    const symbols = Array.from(
+        new Set(
+            (queryResult.results || [])
+                .map(row => String(row.symbol || '').trim())
+                .filter(isValidAShareSymbol),
+        ),
+    );
+
+    if (symbols.length === 0) {
+        console.log('[Cron][FavoritesAnalysis] skip: no favorite symbols');
+        return;
+    }
+
+    const concurrency = resolveAnalysisRefreshConcurrency(env.CRON_ANALYSIS_CONCURRENCY);
+    const queue = symbols.slice();
+    let success = 0;
+    let failed = 0;
+
+    console.log(
+        `[Cron][FavoritesAnalysis] start: symbols=${symbols.length}, concurrency=${concurrency}`,
+    );
+
+    const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+        while (queue.length > 0) {
+            const symbol = queue.shift();
+            if (!symbol) break;
+
+            try {
+                await StockAnalysisService.createStockAnalysis(symbol, env);
+                success++;
+            } catch (err) {
+                failed++;
+                console.error(`[Cron][FavoritesAnalysis] failed for ${symbol}:`, err);
+            }
+        }
+    });
+
+    await Promise.all(workers);
+
+    console.log(
+        `[Cron][FavoritesAnalysis] done: total=${symbols.length}, success=${success}, failed=${failed}`,
+    );
 }
 
 function getCorsOrigin(request: Request, env: Env): string | null {
@@ -352,6 +426,17 @@ export default {
                     await warmupIndexQuotesIfTradingTime(env);
                 } catch (err) {
                     console.error('[Cron][HotStockInfoWarmup] failed:', err);
+                }
+            })());
+            return;
+        }
+
+        if (FAVORITES_ANALYSIS_REFRESH_CRON_EXPRESSIONS.has(event.cron)) {
+            ctx.waitUntil((async () => {
+                try {
+                    await refreshFavoritesStockAnalysis(env);
+                } catch (err) {
+                    console.error('[Cron][FavoritesAnalysis] failed:', err);
                 }
             })());
             return;
