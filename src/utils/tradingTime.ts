@@ -107,6 +107,13 @@ function isClosingRefreshMoment(parts: Pick<ChinaDateTimeParts, 'hour' | 'minute
     return parts.hour === 15 && parts.minute === 0;
 }
 
+function normalizePositiveTtlSeconds(value: number): number {
+    if (!Number.isFinite(value)) {
+        throw new Error('Invalid ttl seconds');
+    }
+    return Math.max(1, Math.floor(value));
+}
+
 function addCalendarDays(
     parts: Pick<ChinaDateTimeParts, 'year' | 'month' | 'day'>,
     offset: number,
@@ -225,12 +232,16 @@ export async function isAShareTradingTime(options: AShareTradingTimeOptions = {}
 }
 
 /**
- * 计算指数缓存 TTL：
- * - 交易时段：300s + 随机扰动（0~5s）
+ * 计算 A 股缓存 TTL：
+ * - 交易时段：使用传入的交易时段 TTL
  * - 15:00 最后一轮刷新：拉长到下一交易日 09:15
  * - 非交易时段：拉长到下一交易日 09:15
  */
-export async function getAShareIndexCacheTtlSeconds(options: AShareTradingTimeOptions = {}): Promise<number> {
+export async function getAShareAdaptiveCacheTtlSeconds(
+    tradingTtlSeconds: number,
+    options: AShareTradingTimeOptions = {},
+): Promise<number> {
+    const resolvedTradingTtlSeconds = normalizePositiveTtlSeconds(tradingTtlSeconds);
     const nowInput = options.now ?? Date.now();
     const nowDate = nowInput instanceof Date ? nowInput : new Date(nowInput);
     const fetcher = options.fetcher ?? fetch;
@@ -246,8 +257,20 @@ export async function getAShareIndexCacheTtlSeconds(options: AShareTradingTimeOp
     const inTradingWindows = isWithinTradingWindows(chinaParts);
 
     if (!weekend && !holiday && inTradingWindows && !isClosingRefreshMoment(chinaParts)) {
-        return INDEX_QUOTE_TRADING_TTL_BASE_SECONDS + Math.floor(Math.random() * (INDEX_QUOTE_TRADING_TTL_JITTER_SECONDS + 1));
+        return resolvedTradingTtlSeconds;
     }
 
     return getSecondsUntilNextTradingOpen(nowDate, fetcher);
+}
+
+/**
+ * 计算指数缓存 TTL：
+ * - 交易时段：300s + 随机扰动（0~5s）
+ * - 15:00 最后一轮刷新：拉长到下一交易日 09:15
+ * - 非交易时段：拉长到下一交易日 09:15
+ */
+export async function getAShareIndexCacheTtlSeconds(options: AShareTradingTimeOptions = {}): Promise<number> {
+    const tradingTtlSeconds = INDEX_QUOTE_TRADING_TTL_BASE_SECONDS
+        + Math.floor(Math.random() * (INDEX_QUOTE_TRADING_TTL_JITTER_SECONDS + 1));
+    return getAShareAdaptiveCacheTtlSeconds(tradingTtlSeconds, options);
 }

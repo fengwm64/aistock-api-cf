@@ -9,7 +9,10 @@ export const HOT_STOCK_INFO_WARMUP_TOPN = 8;
 export const STOCK_INFO_CACHE_KEY_PREFIX = 'stock_info:';
 export const STOCK_INFO_CACHE_TTL_SECONDS = 14 * 24 * 60 * 60;
 export const INDEX_QUOTE_CACHE_KEY_PREFIX = 'index_quote:';
-export const INDEX_QUOTE_CACHE_TTL_SECONDS = 5 * 60;
+export const STOCK_QUOTE_CORE_CACHE_KEY_PREFIX = 'stock_quote:core:';
+export const STOCK_QUOTE_FUNDAMENTAL_CACHE_KEY_PREFIX = 'stock_quote:fundamental:';
+export const STOCK_QUOTE_CORE_TRADING_TTL_SECONDS = 30;
+export const STOCK_QUOTE_FUNDAMENTAL_TRADING_TTL_SECONDS = 60;
 
 export interface HotStocksCachePayload {
     timestamp: number;

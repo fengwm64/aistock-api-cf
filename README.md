@@ -384,7 +384,12 @@ GET /api/cn/stock/infos?symbols=000001,600519
 - **参数**:
   - `core/activity`: `symbols` — 逗号分隔的股票代码，单次最多 20 只
   - `kline`: `symbol` — 单只股票代码（6位数字）
-- **缓存**: 无（实时数据）
+- **缓存策略**:
+  - `core`: Workers KV（key: `stock_quote:core:{symbol}`），读缓存优先，未命中回源并回填
+    - 交易时段 TTL：`30s`
+    - 非交易时段（含 15:00 收盘点）TTL：到下一交易日 `09:15`
+  - `activity`: 无缓存（实时数据）
+  - `kline`: 无缓存（实时数据）
 - **单位说明**: 成交量/内盘/外盘原始单位为手，已统一转换为**股**（1手=100股）；更新时间已从 Unix 时间戳转换为可读格式
 
 #### 3.1 核心行情（一级）
@@ -602,7 +607,10 @@ GET /api/cn/stock/quotes/kline?symbol=300750&klt=101&fqt=2&startDate=20240101&en
 
 - **URL**: `/api/cn/stock/fundamentals?symbols=`
 - **参数**: `symbols` — 逗号分隔的股票代码，单次最多 20 只
-- **缓存**: 无（实时数据）
+- **缓存**: Workers KV（key: `stock_quote:fundamental:{symbol}`），读缓存优先，未命中时回源并回填
+- **TTL**:
+  - 交易时段：`60s`
+  - 非交易时段（含 15:00 收盘点）：到下一交易日 `09:15`
 - **数据源**: 东方财富
 
 **请求示例**:
@@ -1833,6 +1841,8 @@ crons = ["*/30 * * * *", "*/5 * * * *"]
     - `/api/cn/market/stockrank` 改为优先读 `hot_stocks:v1`，未命中时回源并回填
     - `/api/cn/stock/infos` 使用 `stock_info:{symbol}`，并保持 14 天硬 TTL（命中不续期）
     - `/api/cn/index/quotes`、`/api/gb/index/quotes` 改为优先读 `index_quote:*`，未命中时回源并回填
+  - `/api/cn/stock/quotes/core` 新增 KV 缓存（`stock_quote:core:{symbol}`），交易时段 TTL `30s`，非交易时段到下一交易日 `09:15`
+  - `/api/cn/stock/fundamentals` 新增 KV 缓存（`stock_quote:fundamental:{symbol}`），交易时段 TTL `60s`，非交易时段到下一交易日 `09:15`
 
 ### 2026年2月17日
 - **新增功能**:
