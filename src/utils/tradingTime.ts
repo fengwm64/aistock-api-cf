@@ -12,7 +12,7 @@
 
 const TIMOR_HOLIDAY_API_BASE = 'https://timor.tech/api/holiday/info/';
 const HOLIDAY_REQUEST_TIMEOUT_MS = 3500;
-const INDEX_QUOTE_TRADING_TTL_BASE_SECONDS = 5 * 60;
+const INDEX_QUOTE_TRADING_TTL_BASE_SECONDS = 30;
 const INDEX_QUOTE_TRADING_TTL_JITTER_SECONDS = 5;
 const TRADING_OPEN_HOUR = 9;
 const TRADING_OPEN_MINUTE = 15;
@@ -265,7 +265,7 @@ export async function getAShareAdaptiveCacheTtlSeconds(
 
 /**
  * 计算指数缓存 TTL：
- * - 交易时段：300s + 随机扰动（0~5s）
+ * - 交易时段：30s + 随机扰动（0~5s）
  * - 15:00 最后一轮刷新：拉长到下一交易日 09:15
  * - 非交易时段：拉长到下一交易日 09:15
  */

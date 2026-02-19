@@ -783,7 +783,7 @@ POST /api/cn/stock/600519/profit-forecast
 - **参数**: `symbols` — 逗号分隔的指数代码，单次最多 20 只
 - **缓存**: Workers KV（key: `index_quote:cn:{symbol}`），读缓存优先，未命中时回源并回填
 - **TTL**: 自动计算
-  - 交易时段内：`300s + 随机(0~5s)`
+  - 交易时段内：`30s + 随机(0~5s)`
   - 15:00 收盘刷新或非交易时段：TTL 拉长到下一交易日 `09:15`
 - **数据源**: 东方财富
 
@@ -1724,8 +1724,6 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `EVA_MODEL` | 个股评价使用的模型名 |
 | `OCR_MODEL` | 自选股图片 OCR 使用的模型名 |
 | `CRON_HOT_TOPN` | 人气榜缓存写入数量上限（默认 8，最大 100） |
-| `CRON_CN_INDEX_SYMBOLS` | `*/5` 指数预热任务的 A 股指数列表（逗号分隔），默认 `000001,399001,399006` |
-| `CRON_GB_INDEX_SYMBOLS` | `*/5` 指数预热任务的全球指数列表（逗号分隔），默认 `HXC,XIN9,HSTECH` |
 | `CRON_ANALYSIS_CONCURRENCY` | 自选股评价刷新任务并发度（默认 2，最大 6） |
 
 设置方式：
@@ -1775,19 +1773,10 @@ crons = [
 
 每 5 分钟执行一次：
 1. 读取 `hot_stocks:v1`。
-2. 如果 key 不存在，直接跳过，不做额外请求。
-3. 如果存在，取前 8 个 symbol。
-4. 检查对应 `stock_info:{symbol}` 是否存在且结构合法（`{ timestamp, data }`）。
+2. 如果 key 存在，取前 8 个 symbol；如果不存在，则热门榜部分为空。
+3. 读取 `user_stocks` 全量自选股，按 symbol 去重。
+4. 合并“热门榜 symbol + 自选股 symbol”，逐个检查 `stock_info:{symbol}` 是否存在且结构合法（`{ timestamp, data }`）。
 5. 对缺失或坏缓存项回源 `EmService.getStockInfo(symbol)` 并写入 14 天 TTL。
-6. 若当前处于 A 股交易时段（使用 `timor.tech` 节假日接口 + 交易时段规则判断），刷新指数缓存：
-   - 交易时段（北京时间）：`09:15-09:25`、`09:30-11:30`、`13:00-15:00`
-   - 仅周一至周五，且当天不是法定节假日
-   - 节假日接口异常时按“非交易时段”处理（保守策略）
-   - A 股指数：`CRON_CN_INDEX_SYMBOLS`（默认 `000001,399001,399006`）
-   - 全球指数：`CRON_GB_INDEX_SYMBOLS`（默认 `HXC,XIN9,HSTECH`）
-7. 指数缓存 TTL 自动设置：
-   - 交易时段内：`300s + 随机(0~5s)`
-   - 15:00 或非交易时段：TTL 拉长到下一交易日 `09:15`
 
 ### 4. 与接口请求的协作关系
 
@@ -1801,7 +1790,7 @@ crons = [
 
 3. `/api/cn/index/quotes` 与 `/api/gb/index/quotes`
    读 `index_quote:*` 优先；缺失时回源并回填。  
-   与 `*/5` 的交易时段指数预热任务协同，保证交易时段高频更新。
+   指数缓存由接口请求按读穿策略更新（不再由 `*/5` 任务定时预热）。
 
 ### 5. 任务 C（交易日 `09:30` / `13:00` / `15:00`）
 
@@ -1857,8 +1846,7 @@ crons = [
   - 新增 `GET /api/cn/stocks/:symbol/analysis/history`，支持分页查看个股历史评价记录。
   - 新增 Cloudflare Cron + KV 缓存协作机制：
     - `*/30` 定时刷新热门人气榜缓存 `hot_stocks:v1`
-    - `*/5` 定时检查热门股前 8 的 `stock_info:{symbol}` 缓存并补齐缺失项
-    - `*/5` 在交易时段内定时刷新指数缓存（A 股 + 全球指数）
+    - `*/5` 定时检查“热门股前 8 + 全体用户自选股”的 `stock_info:{symbol}` 缓存并补齐缺失项
     - 交易日 `09:30` / `13:00` / `15:00` 定时刷新全体用户自选股评价并写入 `stock_analysis`
     - `/api/cn/market/stockrank` 改为优先读 `hot_stocks:v1`，未命中时回源并回填
     - `/api/cn/stock/infos` 使用 `stock_info:{symbol}`，并保持 14 天硬 TTL（命中不续期）

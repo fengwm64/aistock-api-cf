@@ -18,8 +18,6 @@ OCR_MODEL = "openai"
 
 # 定时任务相关设置
 CRON_HOT_TOPN = "8"
-CRON_CN_INDEX_SYMBOLS = "000001,399001,399006"
-CRON_GB_INDEX_SYMBOLS = "HXC,XIN9,HSTECH"
 CRON_ANALYSIS_CONCURRENCY = "2"
 
 # 敏感信息请通过 wrangler secret put 设置:

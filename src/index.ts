@@ -54,8 +54,6 @@ export interface Env {
     EVA_MODEL: string;
     OCR_MODEL: string;
     CRON_HOT_TOPN?: string;
-    CRON_CN_INDEX_SYMBOLS?: string;
-    CRON_GB_INDEX_SYMBOLS?: string;
     CRON_ANALYSIS_CONCURRENCY?: string;
 }
 
@@ -123,6 +121,7 @@ const settingQueryRoutes: [RegExp, SettingQueryRouteHandler][] = [
 
 const HOT_STOCKS_CRON_EXPRESSION = '*/30 * * * *';
 const HOT_STOCK_INFO_WARMUP_CRON_EXPRESSION = '*/5 * * * *';
+const HOT_STOCK_INFO_WARMUP_CONCURRENCY = 6;
 const FAVORITES_ANALYSIS_REFRESH_CRON_EXPRESSIONS = new Set([
     '30 1 * * 1-5', // UTC -> 北京时间 09:30
     '0 5 * * 1-5',  // UTC -> 北京时间 13:00
@@ -173,79 +172,94 @@ async function warmupHotStockInfos(env: Env): Promise<void> {
         hotStocksPayload = await env.KV.get<HotStocksCachePayload>(HOT_STOCKS_CACHE_KEY, 'json');
     } catch (err) {
         console.error('[Cron][HotStockInfoWarmup] failed to read hot stocks cache:', err);
-        return;
     }
 
-    // 需求约束：热门榜 key 不存在时不做任何事情
-    if (!hotStocksPayload) {
-        console.log('[Cron][HotStockInfoWarmup] hot stocks cache missing, skip');
-        return;
-    }
-
-    const symbolsFromRank = Array.isArray(hotStocksPayload.hotStocks)
+    const symbolsFromRank = hotStocksPayload && Array.isArray(hotStocksPayload.hotStocks)
         ? hotStocksPayload.hotStocks.map(item => item?.['股票代码'])
         : [];
-    const symbolsFromField = Array.isArray(hotStocksPayload.symbols)
+    const symbolsFromField = hotStocksPayload && Array.isArray(hotStocksPayload.symbols)
         ? hotStocksPayload.symbols
         : [];
-    const baseSymbols = symbolsFromRank.length > 0 ? symbolsFromRank : symbolsFromField;
-
-    const symbols = Array.from(
+    const hotSymbols = Array.from(
         new Set(
-            baseSymbols
+            (symbolsFromRank.length > 0 ? symbolsFromRank : symbolsFromField)
                 .filter((item): item is string => typeof item === 'string')
                 .map(item => item.trim())
                 .filter(isValidAShareSymbol),
         ),
     ).slice(0, HOT_STOCK_INFO_WARMUP_TOPN);
 
+    let favoriteSymbols: string[] = [];
+    try {
+        const queryResult = await env.DB
+            .prepare(
+                `SELECT DISTINCT symbol
+                 FROM user_stocks
+                 ORDER BY symbol ASC`,
+            )
+            .all<{ symbol: string }>();
+
+        favoriteSymbols = Array.from(
+            new Set(
+                (queryResult.results || [])
+                    .map(row => String(row.symbol || '').trim())
+                    .filter(isValidAShareSymbol),
+            ),
+        );
+    } catch (err) {
+        console.error('[Cron][HotStockInfoWarmup] failed to read favorite symbols:', err);
+    }
+
+    const symbols = Array.from(new Set([...hotSymbols, ...favoriteSymbols]));
     if (symbols.length === 0) {
-        console.log('[Cron][HotStockInfoWarmup] no valid symbols in hot stocks cache, skip');
+        console.log('[Cron][HotStockInfoWarmup] no symbols from hot list and favorites, skip');
         return;
     }
 
-    const results = await Promise.all(symbols.map(async (symbol) => {
-        const cacheKey = `${STOCK_INFO_CACHE_KEY_PREFIX}${symbol}`;
-        try {
-            const cached = await env.KV.get(cacheKey, 'json');
-            if (isValidStockInfoCachePayload(cached)) {
-                return 'hit' as const;
-            }
-        } catch (err) {
-            console.error(`[Cron][HotStockInfoWarmup] failed to read ${cacheKey}:`, err);
-        }
+    const queue = symbols.slice();
+    let hitCount = 0;
+    let filledCount = 0;
+    let failedCount = 0;
 
-        try {
-            const data = await EmService.getStockInfo(symbol);
-            if (Object.keys(data).length > 0) {
-                await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data }), {
-                    expirationTtl: STOCK_INFO_CACHE_TTL_SECONDS,
-                });
-            }
-            return 'filled' as const;
-        } catch (err) {
-            console.error(`[Cron][HotStockInfoWarmup] failed to warmup ${cacheKey}:`, err);
-            return 'failed' as const;
-        }
-    }));
+    const workers = Array.from(
+        { length: Math.min(HOT_STOCK_INFO_WARMUP_CONCURRENCY, queue.length) },
+        async () => {
+            while (queue.length > 0) {
+                const symbol = queue.shift();
+                if (!symbol) break;
 
-    const hitCount = results.filter(status => status === 'hit').length;
-    const filledCount = results.filter(status => status === 'filled').length;
-    const failedCount = results.filter(status => status === 'failed').length;
+                const cacheKey = `${STOCK_INFO_CACHE_KEY_PREFIX}${symbol}`;
+                try {
+                    const cached = await env.KV.get(cacheKey, 'json');
+                    if (isValidStockInfoCachePayload(cached)) {
+                        hitCount++;
+                        continue;
+                    }
+                } catch (err) {
+                    console.error(`[Cron][HotStockInfoWarmup] failed to read ${cacheKey}:`, err);
+                }
+
+                try {
+                    const data = await EmService.getStockInfo(symbol);
+                    if (Object.keys(data).length > 0) {
+                        await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data }), {
+                            expirationTtl: STOCK_INFO_CACHE_TTL_SECONDS,
+                        });
+                    }
+                    filledCount++;
+                } catch (err) {
+                    failedCount++;
+                    console.error(`[Cron][HotStockInfoWarmup] failed to warmup ${cacheKey}:`, err);
+                }
+            }
+        },
+    );
+
+    await Promise.all(workers);
 
     console.log(
-        `[Cron][HotStockInfoWarmup] checked=${symbols.length}, hit=${hitCount}, filled=${filledCount}, failed=${failedCount}`,
+        `[Cron][HotStockInfoWarmup] checked=${symbols.length}, hot=${hotSymbols.length}, favorites=${favoriteSymbols.length}, hit=${hitCount}, filled=${filledCount}, failed=${failedCount}`,
     );
-}
-
-async function warmupIndexQuotesIfTradingTime(env: Env): Promise<void> {
-    const inTradingTime = await isAShareTradingTime();
-    if (!inTradingTime) {
-        console.log('[Cron][IndexWarmup] skip: not in A-share trading time');
-        return;
-    }
-
-    await IndexQuoteController.refreshPresetIndexQuotes(env);
 }
 
 async function refreshFavoritesStockAnalysis(env: Env): Promise<void> {
@@ -423,7 +437,6 @@ export default {
             ctx.waitUntil((async () => {
                 try {
                     await warmupHotStockInfos(env);
-                    await warmupIndexQuotesIfTradingTime(env);
                 } catch (err) {
                     console.error('[Cron][HotStockInfoWarmup] failed:', err);
                 }

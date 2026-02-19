@@ -161,9 +161,6 @@ async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>>
  * 指数实时行情控制器
  */
 export class IndexQuoteController {
-    private static readonly DEFAULT_CRON_CN_INDEX_SYMBOLS = ['000001', '399001', '399006'] as const;
-    private static readonly DEFAULT_CRON_GB_INDEX_SYMBOLS = ['HXC', 'XIN9', 'HSTECH'] as const;
-
     private static buildIndexCacheKey(market: 'cn' | 'gb', symbol: string): string {
         return `${INDEX_QUOTE_CACHE_KEY_PREFIX}${market}:${symbol.toUpperCase()}`;
     }
@@ -226,70 +223,6 @@ export class IndexQuoteController {
         const quote = await getGlobalIndexQuote(symbol);
         await this.writeCachedQuote('gb', symbol, quote, env);
         return { quote, fromCache: false };
-    }
-
-    static async refreshPresetIndexQuotes(env: Env): Promise<void> {
-        if (!env.KV) {
-            console.warn('[Cron][IndexWarmup] KV binding is missing, skip warmup');
-            return;
-        }
-
-        const cnSymbols = this.parseCronCnSymbols(env.CRON_CN_INDEX_SYMBOLS);
-        const gbSymbols = this.parseCronGbSymbols(env.CRON_GB_INDEX_SYMBOLS);
-        const ttlSeconds = await getAShareIndexCacheTtlSeconds();
-        const tasks: Promise<void>[] = [];
-
-        for (const symbol of cnSymbols) {
-            tasks.push((async () => {
-                const quote = await getIndexQuote(symbol);
-                await this.writeCachedQuote('cn', symbol, quote, env, ttlSeconds);
-            })());
-        }
-
-        for (const symbol of gbSymbols) {
-            tasks.push((async () => {
-                const quote = await getGlobalIndexQuote(symbol);
-                await this.writeCachedQuote('gb', symbol, quote, env, ttlSeconds);
-            })());
-        }
-
-        const results = await Promise.allSettled(tasks);
-        const failed = results.filter(item => item.status === 'rejected').length;
-        const succeeded = results.length - failed;
-
-        if (failed > 0) {
-            console.error(`[Cron][IndexWarmup] done with partial failures: ok=${succeeded}, failed=${failed}`);
-            return;
-        }
-
-        console.log(`[Cron][IndexWarmup] refreshed index caches: total=${results.length}`);
-    }
-
-    private static parseCronCnSymbols(raw: string | undefined): string[] {
-        const fallback = Array.from(this.DEFAULT_CRON_CN_INDEX_SYMBOLS);
-        if (!raw || !raw.trim()) return fallback;
-
-        const parsed = Array.from(new Set(
-            raw.split(',').map(item => item.trim()).filter(Boolean),
-        ));
-
-        const valid = parsed.filter(isValidAShareSymbol);
-        return valid.length > 0 ? valid.slice(0, MAX_SYMBOLS) : fallback;
-    }
-
-    private static parseCronGbSymbols(raw: string | undefined): string[] {
-        const fallback = Array.from(this.DEFAULT_CRON_GB_INDEX_SYMBOLS);
-        if (!raw || !raw.trim()) return fallback;
-
-        const parsed = Array.from(new Set(
-            raw
-                .split(',')
-                .map(item => item.trim().toUpperCase())
-                .filter(Boolean),
-        ));
-
-        const valid = parsed.filter(isValidGlobalIndexSymbol);
-        return valid.length > 0 ? valid.slice(0, MAX_SYMBOLS) : fallback;
     }
 
     static async getIndexQuotes(request: Request, env: Env, ctx: ExecutionContext) {
