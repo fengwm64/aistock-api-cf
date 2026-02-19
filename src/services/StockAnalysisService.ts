@@ -161,6 +161,21 @@ JSON 结构如下：
         return value.trim().replace(/\s+/g, ' ');
     }
 
+    /**
+     * 保留换行，仅压缩每行内部的空白，避免将分点分析压平为单行
+     */
+    private static normalizeMultilineText(value: unknown): string {
+        if (typeof value !== 'string') return '';
+
+        return value
+            .replace(/\r\n?/g, '\n')
+            .split('\n')
+            .map(line => line.trim().replace(/[ \t\u00A0]+/g, ' '))
+            .join('\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+
     private static clipText(text: string, max: number): string {
         if (!text) return '';
         const chars = Array.from(text);
@@ -220,8 +235,8 @@ JSON 结构如下：
             if (!required.every(key => keys.includes(key))) return null;
 
             const conclusion = this.normalizeText((parsed as any)['结论']) as AnalysisConclusion;
-            const coreLogic = this.normalizeText((parsed as any)['核心逻辑']);
-            const riskWarning = this.normalizeText((parsed as any)['风险提示']);
+            const coreLogic = this.normalizeMultilineText((parsed as any)['核心逻辑']);
+            const riskWarning = this.normalizeMultilineText((parsed as any)['风险提示']);
 
             if (!this.ALLOWED_CONCLUSIONS.has(conclusion)) return null;
             if (!coreLogic || !riskWarning) return null;
