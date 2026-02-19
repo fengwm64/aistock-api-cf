@@ -12,6 +12,11 @@
 
 const TIMOR_HOLIDAY_API_BASE = 'https://timor.tech/api/holiday/info/';
 const HOLIDAY_REQUEST_TIMEOUT_MS = 3500;
+const INDEX_QUOTE_TRADING_TTL_BASE_SECONDS = 5;
+const INDEX_QUOTE_TRADING_TTL_JITTER_SECONDS = 5;
+const TRADING_OPEN_HOUR = 9;
+const TRADING_OPEN_MINUTE = 15;
+const NEXT_TRADING_SEARCH_MAX_DAYS = 30;
 
 interface HolidayApiResponse {
     code: number;
@@ -97,6 +102,33 @@ function isWithinTradingWindows(parts: Pick<ChinaDateTimeParts, 'hour' | 'minute
     return inAuction || inMorning || inAfternoon;
 }
 
+function isClosingRefreshMoment(parts: Pick<ChinaDateTimeParts, 'hour' | 'minute'>): boolean {
+    // 15:00 这一轮刷新希望将 TTL 拉长至下一交易日 9:15
+    return parts.hour === 15 && parts.minute === 0;
+}
+
+function addCalendarDays(
+    parts: Pick<ChinaDateTimeParts, 'year' | 'month' | 'day'>,
+    offset: number,
+): Pick<ChinaDateTimeParts, 'year' | 'month' | 'day'> {
+    const utcDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + offset));
+    return {
+        year: utcDate.getUTCFullYear(),
+        month: utcDate.getUTCMonth() + 1,
+        day: utcDate.getUTCDate(),
+    };
+}
+
+function chinaDateTimeToTimestampMs(
+    parts: Pick<ChinaDateTimeParts, 'year' | 'month' | 'day'>,
+    hour: number,
+    minute: number,
+    second = 0,
+): number {
+    // 中国时间 = UTC+8
+    return Date.UTC(parts.year, parts.month - 1, parts.day, hour - 8, minute, second);
+}
+
 async function isChinaHoliday(dateKey: string, fetcher: typeof fetch): Promise<boolean> {
     const cached = holidayCache.get(dateKey);
     if (cached !== undefined) return cached;
@@ -135,6 +167,36 @@ async function isChinaHoliday(dateKey: string, fetcher: typeof fetch): Promise<b
     }
 }
 
+async function getSecondsUntilNextTradingOpen(date: Date, fetcher: typeof fetch): Promise<number> {
+    const nowMs = date.getTime();
+    const chinaParts = parseChinaDateTimeParts(date);
+    const today = { year: chinaParts.year, month: chinaParts.month, day: chinaParts.day };
+
+    for (let offset = 0; offset <= NEXT_TRADING_SEARCH_MAX_DAYS; offset++) {
+        const candidate = addCalendarDays(today, offset);
+
+        if (isWeekendInChina(candidate)) {
+            continue;
+        }
+
+        const candidateDateKey = formatDateKey(candidate);
+        const holiday = await isChinaHoliday(candidateDateKey, fetcher);
+        if (holiday) {
+            continue;
+        }
+
+        const openMs = chinaDateTimeToTimestampMs(candidate, TRADING_OPEN_HOUR, TRADING_OPEN_MINUTE, 0);
+        if (openMs <= nowMs) {
+            continue;
+        }
+
+        return Math.max(1, Math.ceil((openMs - nowMs) / 1000));
+    }
+
+    console.warn('[TradingTime] failed to locate next trading open day, fallback to 12h');
+    return 12 * 60 * 60;
+}
+
 /**
  * 判断当前（或指定时间）是否处于 A 股交易时段（北京时间）。
  */
@@ -160,4 +222,32 @@ export async function isAShareTradingTime(options: AShareTradingTimeOptions = {}
     const dateKey = formatDateKey(chinaParts);
     const holiday = await isChinaHoliday(dateKey, fetcher);
     return !holiday;
+}
+
+/**
+ * 计算指数缓存 TTL：
+ * - 交易时段：5s + 随机扰动（0~5s）
+ * - 15:00 最后一轮刷新：拉长到下一交易日 09:15
+ * - 非交易时段：拉长到下一交易日 09:15
+ */
+export async function getAShareIndexCacheTtlSeconds(options: AShareTradingTimeOptions = {}): Promise<number> {
+    const nowInput = options.now ?? Date.now();
+    const nowDate = nowInput instanceof Date ? nowInput : new Date(nowInput);
+    const fetcher = options.fetcher ?? fetch;
+
+    if (Number.isNaN(nowDate.getTime())) {
+        throw new Error('Invalid date input');
+    }
+
+    const chinaParts = parseChinaDateTimeParts(nowDate);
+    const dateKey = formatDateKey(chinaParts);
+    const weekend = isWeekendInChina(chinaParts);
+    const holiday = weekend ? true : await isChinaHoliday(dateKey, fetcher);
+    const inTradingWindows = isWithinTradingWindows(chinaParts);
+
+    if (!weekend && !holiday && inTradingWindows && !isClosingRefreshMoment(chinaParts)) {
+        return INDEX_QUOTE_TRADING_TTL_BASE_SECONDS + Math.floor(Math.random() * (INDEX_QUOTE_TRADING_TTL_JITTER_SECONDS + 1));
+    }
+
+    return getSecondsUntilNextTradingOpen(nowDate, fetcher);
 }

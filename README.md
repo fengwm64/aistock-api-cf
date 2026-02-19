@@ -773,7 +773,10 @@ POST /api/cn/stock/600519/profit-forecast
 
 - **URL**: `/api/cn/index/quotes?symbols=`
 - **参数**: `symbols` — 逗号分隔的指数代码，单次最多 20 只
-- **缓存**: 无（实时数据）
+- **缓存**: Workers KV（key: `index_quote:cn:{symbol}`），读缓存优先，未命中时回源并回填
+- **TTL**: 自动计算
+  - 交易时段内：`5s + 随机(0~5s)`
+  - 15:00 收盘刷新或非交易时段：TTL 拉长到下一交易日 `09:15`
 - **数据源**: 东方财富
 
 **请求示例**:
@@ -853,7 +856,8 @@ GET /api/cn/index/quotes?symbols=000001,399006,399300
 
 - **URL**: `/api/gb/index/quotes?symbols=`
 - **参数**: `symbols` — 逗号分隔的指数代码（字母数字组合，1-10位），单次最多 20 只
-- **缓存**: 无（实时数据）
+- **缓存**: Workers KV（key: `index_quote:gb:{symbol}`），读缓存优先，未命中时回源并回填
+- **TTL**: 同 A 股指数接口（动态 TTL 策略）
 - **数据源**: 东方财富
 
 **请求示例**:
@@ -1712,6 +1716,8 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `EVA_MODEL` | 个股评价使用的模型名 |
 | `OCR_MODEL` | 自选股图片 OCR 使用的模型名 |
 | `CRON_HOT_TOPN` | 人气榜缓存写入数量上限（默认 8，最大 100） |
+| `CRON_CN_INDEX_SYMBOLS` | `*/5` 指数预热任务的 A 股指数列表（逗号分隔），默认 `000001,399001,399006` |
+| `CRON_GB_INDEX_SYMBOLS` | `*/5` 指数预热任务的全球指数列表（逗号分隔），默认 `HXC,XIN9,HSTECH` |
 
 设置方式：
 
@@ -1741,6 +1747,7 @@ crons = ["*/30 * * * *", "*/5 * * * *"]
 |-----|------|-----|------|
 | `hot_stocks:v1` | 热门股票列表（含 symbol 与排名） | 30 分钟 | 由 Cron 任务 A 定期刷新，`stockrank` 接口可读 |
 | `stock_info:{symbol}` | 单只股票基础信息（`{ timestamp, data }`） | 14 天 | 硬过期，不滑动续期 |
+| `index_quote:cn:{symbol}` / `index_quote:gb:{symbol}` | 指数实时行情缓存（`{ timestamp, data }`） | 动态 TTL | 交易时段短 TTL；收盘后/非交易时段延长到下一交易日 09:15 |
 
 ### 2. 任务 A（`*/30 * * * *`）
 
@@ -1757,6 +1764,15 @@ crons = ["*/30 * * * *", "*/5 * * * *"]
 3. 如果存在，取前 8 个 symbol。
 4. 检查对应 `stock_info:{symbol}` 是否存在且结构合法（`{ timestamp, data }`）。
 5. 对缺失或坏缓存项回源 `EmService.getStockInfo(symbol)` 并写入 14 天 TTL。
+6. 若当前处于 A 股交易时段（使用 `timor.tech` 节假日接口 + 交易时段规则判断），刷新指数缓存：
+   - 交易时段（北京时间）：`09:15-09:25`、`09:30-11:30`、`13:00-15:00`
+   - 仅周一至周五，且当天不是法定节假日
+   - 节假日接口异常时按“非交易时段”处理（保守策略）
+   - A 股指数：`CRON_CN_INDEX_SYMBOLS`（默认 `000001,399001,399006`）
+   - 全球指数：`CRON_GB_INDEX_SYMBOLS`（默认 `HXC,XIN9,HSTECH`）
+7. 指数缓存 TTL 自动设置：
+   - 交易时段内：`5s + 随机(0~5s)`
+   - 15:00 或非交易时段：TTL 拉长到下一交易日 `09:15`
 
 ### 4. 与接口请求的协作关系
 
@@ -1768,9 +1784,13 @@ crons = ["*/30 * * * *", "*/5 * * * *"]
    读 `stock_info:{symbol}` 优先；缺失/坏缓存时回源并回填。  
    因为是硬 TTL，访问命中不会刷新生存时间。
 
+3. `/api/cn/index/quotes` 与 `/api/gb/index/quotes`
+   读 `index_quote:*` 优先；缺失时回源并回填。  
+   与 `*/5` 的交易时段指数预热任务协同，保证交易时段高频更新。
+
 ### 5. 扩展预留
 
-`*/5` 任务的结构已按“多任务 runner”设计，后续可无缝增加指数缓存预热任务（例如 index quotes）。
+`*/5` 任务已包含“热门股 info 补齐 + 指数缓存预热”两个子任务，后续可继续扩展更多预热项（如行业板块指数）。
 
 ---
 
@@ -1809,8 +1829,10 @@ crons = ["*/30 * * * *", "*/5 * * * *"]
   - 新增 Cloudflare Cron + KV 缓存协作机制：
     - `*/30` 定时刷新热门人气榜缓存 `hot_stocks:v1`
     - `*/5` 定时检查热门股前 8 的 `stock_info:{symbol}` 缓存并补齐缺失项
+    - `*/5` 在交易时段内定时刷新指数缓存（A 股 + 全球指数）
     - `/api/cn/market/stockrank` 改为优先读 `hot_stocks:v1`，未命中时回源并回填
     - `/api/cn/stock/infos` 使用 `stock_info:{symbol}`，并保持 14 天硬 TTL（命中不续期）
+    - `/api/cn/index/quotes`、`/api/gb/index/quotes` 改为优先读 `index_quote:*`，未命中时回源并回填
 
 ### 2026年2月17日
 - **新增功能**:

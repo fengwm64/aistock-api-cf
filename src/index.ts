@@ -53,6 +53,8 @@ export interface Env {
     EVA_MODEL: string;
     OCR_MODEL: string;
     CRON_HOT_TOPN?: string;
+    CRON_CN_INDEX_SYMBOLS?: string;
+    CRON_GB_INDEX_SYMBOLS?: string;
 }
 
 /** 带数字 ID 参数的路由 */

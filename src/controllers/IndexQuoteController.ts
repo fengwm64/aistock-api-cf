@@ -6,9 +6,9 @@ import { Env } from '../index';
 import { eastmoneyThrottler } from '../utils/throttlers';
 import {
     INDEX_QUOTE_CACHE_KEY_PREFIX,
-    INDEX_QUOTE_CACHE_TTL_SECONDS,
     isValidStockInfoCachePayload,
 } from '../constants/cache';
+import { getAShareIndexCacheTtlSeconds } from '../utils/tradingTime';
 
 /** 单次最多查询数量 */
 const MAX_SYMBOLS = 20;
@@ -156,8 +156,8 @@ async function getGlobalIndexQuote(symbol: string): Promise<Record<string, any>>
  * 指数实时行情控制器
  */
 export class IndexQuoteController {
-    private static readonly CRON_CN_INDEX_SYMBOLS = ['000001', '399001', '399006'] as const;
-    private static readonly CRON_GB_INDEX_SYMBOLS = ['HXC', 'XIN9', 'HSTECH'] as const;
+    private static readonly DEFAULT_CRON_CN_INDEX_SYMBOLS = ['000001', '399001', '399006'] as const;
+    private static readonly DEFAULT_CRON_GB_INDEX_SYMBOLS = ['HXC', 'XIN9', 'HSTECH'] as const;
 
     private static buildIndexCacheKey(market: 'cn' | 'gb', symbol: string): string {
         return `${INDEX_QUOTE_CACHE_KEY_PREFIX}${market}:${symbol.toUpperCase()}`;
@@ -186,13 +186,15 @@ export class IndexQuoteController {
         symbol: string,
         quote: Record<string, any>,
         env: Env,
+        ttlSeconds?: number,
     ): Promise<void> {
         if (!env.KV || Object.keys(quote).length === 0) return;
 
+        const resolvedTtl = ttlSeconds ?? await getAShareIndexCacheTtlSeconds();
         const cacheKey = this.buildIndexCacheKey(market, symbol);
         try {
             await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data: quote }), {
-                expirationTtl: INDEX_QUOTE_CACHE_TTL_SECONDS,
+                expirationTtl: resolvedTtl,
             });
         } catch (err) {
             console.error(`Error writing index quote cache ${cacheKey}:`, err);
@@ -223,19 +225,22 @@ export class IndexQuoteController {
             return;
         }
 
+        const cnSymbols = this.parseCronCnSymbols(env.CRON_CN_INDEX_SYMBOLS);
+        const gbSymbols = this.parseCronGbSymbols(env.CRON_GB_INDEX_SYMBOLS);
+        const ttlSeconds = await getAShareIndexCacheTtlSeconds();
         const tasks: Promise<void>[] = [];
 
-        for (const symbol of this.CRON_CN_INDEX_SYMBOLS) {
+        for (const symbol of cnSymbols) {
             tasks.push((async () => {
                 const quote = await getIndexQuote(symbol);
-                await this.writeCachedQuote('cn', symbol, quote, env);
+                await this.writeCachedQuote('cn', symbol, quote, env, ttlSeconds);
             })());
         }
 
-        for (const symbol of this.CRON_GB_INDEX_SYMBOLS) {
+        for (const symbol of gbSymbols) {
             tasks.push((async () => {
                 const quote = await getGlobalIndexQuote(symbol);
-                await this.writeCachedQuote('gb', symbol, quote, env);
+                await this.writeCachedQuote('gb', symbol, quote, env, ttlSeconds);
             })());
         }
 
@@ -249,6 +254,33 @@ export class IndexQuoteController {
         }
 
         console.log(`[Cron][IndexWarmup] refreshed index caches: total=${results.length}`);
+    }
+
+    private static parseCronCnSymbols(raw: string | undefined): string[] {
+        const fallback = Array.from(this.DEFAULT_CRON_CN_INDEX_SYMBOLS);
+        if (!raw || !raw.trim()) return fallback;
+
+        const parsed = Array.from(new Set(
+            raw.split(',').map(item => item.trim()).filter(Boolean),
+        ));
+
+        const valid = parsed.filter(isValidAShareSymbol);
+        return valid.length > 0 ? valid.slice(0, MAX_SYMBOLS) : fallback;
+    }
+
+    private static parseCronGbSymbols(raw: string | undefined): string[] {
+        const fallback = Array.from(this.DEFAULT_CRON_GB_INDEX_SYMBOLS);
+        if (!raw || !raw.trim()) return fallback;
+
+        const parsed = Array.from(new Set(
+            raw
+                .split(',')
+                .map(item => item.trim().toUpperCase())
+                .filter(Boolean),
+        ));
+
+        const valid = parsed.filter(isValidGlobalIndexSymbol);
+        return valid.length > 0 ? valid.slice(0, MAX_SYMBOLS) : fallback;
     }
 
     static async getIndexQuotes(request: Request, env: Env, ctx: ExecutionContext) {
