@@ -327,6 +327,7 @@ GET /api/cn/stocks?symbol=600000&market=SH
 - **板块 ID**:
   - `行业板块ID`：从 D1 `tags`（`tag_type='行业板块'`）按 `tag_name` 查询
   - `地域板块ID`：从 D1 `tags`（`tag_type='地域板块'`）按 `tag_name` 查询
+  - 当东方财富返回的板块名称为空时，对应 `ID` 返回 `null`
   - 若 `tags` 未命中，会返回错误（不再使用 `stock_tags` 兜底）
 
 **请求示例**:

@@ -83,28 +83,7 @@ export class StockInfoController {
         const enriched = items.map(item => ({ ...item }));
         if (enriched.length === 0) return enriched;
 
-        const missingFieldMessages: string[] = [];
-        const validItems = enriched.filter((item) => {
-            if ('错误' in item) return false;
-
-            const symbol = this.getSymbol(item) ?? '-';
-            const industryName = this.getIndustryBoardName(item);
-            const regionName = this.getRegionBoardName(item);
-
-            if (!industryName || !regionName) {
-                missingFieldMessages.push(
-                    `${symbol}(行业板块=${industryName ?? 'null'}, 地域板块=${regionName ?? 'null'})`,
-                );
-                return false;
-            }
-            return true;
-        });
-
-        if (missingFieldMessages.length > 0) {
-            throw new Error(
-                `股票信息缺少行业板块或地域板块字段，无法查询板块ID: ${missingFieldMessages.join('; ')}`,
-            );
-        }
+        const validItems = enriched.filter(item => !('错误' in item));
 
         const industryNames = Array.from(
             new Set(
@@ -131,12 +110,12 @@ export class StockInfoController {
             const symbol = this.getSymbol(item);
             const industryName = this.getIndustryBoardName(item);
             const regionName = this.getRegionBoardName(item);
-            if (!symbol || !industryName || !regionName) continue;
+            if (!symbol) continue;
 
-            if (!industryCodeByName.get(industryName)) {
+            if (industryName && !industryCodeByName.get(industryName)) {
                 missingTagMessages.push(`${symbol}(行业板块=${industryName})`);
             }
-            if (!regionCodeByName.get(regionName)) {
+            if (regionName && !regionCodeByName.get(regionName)) {
                 missingTagMessages.push(`${symbol}(地域板块=${regionName})`);
             }
         }
@@ -153,10 +132,8 @@ export class StockInfoController {
 
             const industryName = this.getIndustryBoardName(item);
             const regionName = this.getRegionBoardName(item);
-            if (!industryName || !regionName) continue;
-
-            item['行业板块ID'] = industryCodeByName.get(industryName) ?? null;
-            item['地域板块ID'] = regionCodeByName.get(regionName) ?? null;
+            item['行业板块ID'] = industryName ? (industryCodeByName.get(industryName) ?? null) : null;
+            item['地域板块ID'] = regionName ? (regionCodeByName.get(regionName) ?? null) : null;
         }
 
         return enriched;
