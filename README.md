@@ -1,6 +1,6 @@
 # AIStock API
 
-A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、盈利预测、热门人气榜、新闻头条、个股新闻、个股 AI 评价、自选股图片 OCR 识别等接口。
+A 股数据 API，基于 Cloudflare Workers 构建，提供股票基本信息、股票实时行情、指数实时行情、板块龙头个股、盈利预测、热门人气榜、新闻头条、个股新闻、个股 AI 评价、自选股图片 OCR 识别等接口。
 
 ## 架构
 
@@ -12,6 +12,7 @@ src/
 │   ├── StockInfoController.ts      # 股票基本信息
 │   ├── StockQuoteController.ts     # 股票实时行情
 │   ├── IndexQuoteController.ts     # 指数实时行情
+│   ├── TagLeaderController.ts      # 板块龙头个股
 │   ├── StockRankController.ts      # 热门人气榜
 │   ├── ProfitForecastController.ts # 盈利预测
 │   ├── NewsController.ts           # 新闻头条/个股新闻/新闻详情
@@ -20,6 +21,7 @@ src/
 ├── services/                       # 服务层：核心业务逻辑 & 外部数据源请求
 │   ├── EmService.ts                # 东方财富 - 股票基本信息
 │   ├── EmQuoteService.ts           # 东方财富 - 股票实时行情
+│   ├── EmTagLeaderService.ts       # 东方财富 - 板块龙头个股
 │   ├── EmStockRankService.ts       # 东方财富 - 人气榜排名
 │   ├── ThsService.ts               # 同花顺 - 盈利预测
 │   ├── ClsStockNewsService.ts      # 财联社 - 个股新闻复用服务
@@ -972,6 +974,59 @@ GET /api/cn/market/stockrank?count=8
   }
 }
 ```
+
+---
+
+#### 7.1 板块龙头个股
+
+按指定板块（`tagCode`）查询主力净流入排序靠前的龙头个股。
+
+- **URL**: `/api/cn/tags/:tagCode/leaders`
+- **路径参数**:
+  - `tagCode` — 板块代码，格式 `BK` + 4位数字（例如 `BK0428`）
+- **查询参数**:
+  - `count` — 返回数量，默认 10，范围 1-100
+- **排序规则**: 按 `f62`（主力净流入）降序
+- **数据源**: 东方财富 `clist` 接口
+
+**请求示例**:
+
+```
+GET /api/cn/tags/BK0428/leaders
+GET /api/cn/tags/BK0428/leaders?count=10
+```
+
+**响应示例**:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "来源": "东方财富 https://push2.eastmoney.com/api/qt/clist/get",
+    "板块ID": "BK0428",
+    "排序字段": "主力净流入",
+    "排序方式": "降序",
+    "数量": 10,
+    "龙头个股": [
+      {
+        "股票代码": "688981",
+        "股票名称": "中芯国际",
+        "最新价": 91.52,
+        "涨跌幅": 2.41,
+        "主力净流入": 356812345
+      }
+    ]
+  }
+}
+```
+
+**返回字段**:
+- `股票代码`: 东财字段 `f12`
+- `股票名称`: 东财字段 `f14`
+- `最新价`: 东财字段 `f2`
+- `涨跌幅`: 东财字段 `f3`
+- `主力净流入`: 东财字段 `f62`（单位：元）
 
 ---
 

@@ -4,6 +4,7 @@ import { StockQuoteController } from './controllers/StockQuoteController';
 import { StockRankController } from './controllers/StockRankController';
 import { StockListController } from './controllers/StockListController';
 import { IndexQuoteController } from './controllers/IndexQuoteController';
+import { TagLeaderController } from './controllers/TagLeaderController';
 import { NewsController } from './controllers/NewsController';
 import { AuthController } from './controllers/AuthController';
 import { UserController } from './controllers/UserController';
@@ -68,6 +69,8 @@ type SimpleRouteHandler = (env: Env, ctx: ExecutionContext) => Promise<Response>
 type QueryRouteHandler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 /** 路径中携带 symbol，且带查询参数的路由 */
 type SymbolQueryRouteHandler = (symbol: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
+/** 路径中携带 tagCode，且带查询参数的路由 */
+type TagQueryRouteHandler = (tagCode: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 /** 路径中携带 settingType，且带查询参数的路由 */
 type SettingQueryRouteHandler = (settingType: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 
@@ -114,6 +117,10 @@ const symbolQueryRoutes: [RegExp, SymbolQueryRouteHandler][] = [
     [/^\/api\/cn\/stocks\/([0-9]{6})\/analysis\/history\/?$/, StockAnalysisController.getStockAnalysisHistory.bind(StockAnalysisController)],
     [/^\/api\/cn\/stocks\/([0-9]{6})\/analysis\/?$/, StockAnalysisController.handleStockAnalysis.bind(StockAnalysisController)],
     [/^\/api\/cn\/stock\/([0-9]{6})\/profit-forecast\/?$/, ProfitForecastController.getThsForecast.bind(ProfitForecastController)],
+];
+
+const tagQueryRoutes: [RegExp, TagQueryRouteHandler][] = [
+    [/^\/api\/cn\/tags\/([^/]+)\/leaders\/?$/, TagLeaderController.getTagLeaders.bind(TagLeaderController)],
 ];
 
 const settingQueryRoutes: [RegExp, SettingQueryRouteHandler][] = [
@@ -394,6 +401,15 @@ export default {
                 }
             }
 
+            // 路径中携带 tagCode 且带查询参数的路由
+            for (const [pattern, handler] of tagQueryRoutes) {
+                const match = pathname.match(pattern);
+                if (match && match[1]) {
+                    const tagCode = match[1];
+                    return withCors(await handler(tagCode, request, env, ctx), request, env);
+                }
+            }
+
             // 路径中携带 settingType 且带查询参数的路由
             for (const [pattern, handler] of settingQueryRoutes) {
                 const match = pathname.match(pattern);
@@ -417,7 +433,7 @@ export default {
                 }
             }
 
-            return withCors(createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/settings, /api/users/me/settings/:settingType, /api/users/me/news/push, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stocks/profit-forecast, /api/cn/stocks/profit-forecast/search, /api/cn/stocks/ocr, /api/cn/stocks/:symbol/news, /api/cn/stocks/:symbol/analysis, /api/cn/stocks/:symbol/analysis/history, /api/cn/stock/:symbol/profit-forecast, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/quotes/kline, /api/cn/stock/fundamentals, /api/cn/market/stockrank, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id'), request, env);
+            return withCors(createResponse(404, 'Not Found - 可用接口: /api/auth/wechat/login, /api/auth/wechat/login/scan, /api/auth/wechat/login/scan/poll, /api/auth/wechat/callback, /api/auth/wechat/push, /api/auth/logout, /api/users/me, /api/users/me/settings, /api/users/me/settings/:settingType, /api/users/me/news/push, /api/users/me/favorites, /api/users/me/favorites/delete, /api/cn/stocks, /api/cn/stocks/profit-forecast, /api/cn/stocks/profit-forecast/search, /api/cn/stocks/ocr, /api/cn/stocks/:symbol/news, /api/cn/stocks/:symbol/analysis, /api/cn/stocks/:symbol/analysis/history, /api/cn/stock/:symbol/profit-forecast, /api/cn/stock/infos, /api/cn/stock/quotes/core, /api/cn/stock/quotes/activity, /api/cn/stock/quotes/kline, /api/cn/stock/fundamentals, /api/cn/market/stockrank, /api/cn/tags/:tagCode/leaders, /api/cn/index/quotes, /api/gb/index/quotes, /api/news/headlines, /api/news/cn, /api/news/hk, /api/news/gb, /api/news/fund, /api/news/:id'), request, env);
         } catch (err: any) {
             return withCors(createResponse(500, err instanceof Error ? err.message : 'Internal Server Error'), request, env);
         }

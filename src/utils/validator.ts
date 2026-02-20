@@ -15,3 +15,10 @@ export function isValidAShareSymbol(symbol: string): boolean {
 export function isValidGlobalIndexSymbol(symbol: string): boolean {
     return /^[A-Z0-9]{1,10}$/i.test(symbol);
 }
+
+/**
+ * 校验板块代码格式（BK + 4位数字）
+ */
+export function isValidTagCode(tagCode: string): boolean {
+    return /^BK\d{4}$/i.test(tagCode);
+}
