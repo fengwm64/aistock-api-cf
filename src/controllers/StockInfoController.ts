@@ -15,16 +15,153 @@ import { getStockIdentity } from '../utils/stock';
 
 /** 单次最多查询股票数量 */
 const MAX_SYMBOLS = 20;
+const INDUSTRY_TAG_TYPE = '行业板块' as const;
+const REGION_TAG_TYPE = '地域板块' as const;
 
 interface BatchStockInfoResult {
     data: Record<string, any>;
     fromCache: boolean;
 }
 
+interface TagByNameRow {
+    tag_name: string;
+    tag_code: string;
+}
+
 /**
  * 股票基本信息控制器
  */
 export class StockInfoController {
+    private static normalizeText(value: unknown): string | null {
+        if (typeof value !== 'string') return null;
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+
+    private static getSymbol(data: Record<string, any>): string | null {
+        return this.normalizeText(data['股票代码']);
+    }
+
+    private static getIndustryBoardName(data: Record<string, any>): string | null {
+        return this.normalizeText(data['行业板块'] ?? data['所属行业']);
+    }
+
+    private static getRegionBoardName(data: Record<string, any>): string | null {
+        return this.normalizeText(data['地域板块']);
+    }
+
+    private static async queryTagCodesByNames(
+        env: Env,
+        tagType: typeof INDUSTRY_TAG_TYPE | typeof REGION_TAG_TYPE,
+        names: string[],
+    ): Promise<Map<string, string>> {
+        if (names.length === 0) return new Map();
+
+        const placeholders = names.map((_, index) => `?${index + 2}`).join(', ');
+        const sql = `
+            SELECT tag_name, tag_code
+            FROM tags
+            WHERE tag_type = ?1
+              AND tag_name IN (${placeholders})
+        `;
+
+        const result = await env.DB.prepare(sql).bind(tagType, ...names).all<TagByNameRow>();
+        const mapping = new Map<string, string>();
+        for (const row of result.results || []) {
+            const tagName = this.normalizeText(row.tag_name);
+            const tagCode = this.normalizeText(row.tag_code);
+            if (!tagName || !tagCode) continue;
+            mapping.set(tagName, tagCode);
+        }
+        return mapping;
+    }
+
+    private static async enrichBoardIds(
+        items: Record<string, any>[],
+        env: Env,
+    ): Promise<Record<string, any>[]> {
+        const enriched = items.map(item => ({ ...item }));
+        if (enriched.length === 0) return enriched;
+
+        const missingFieldMessages: string[] = [];
+        const validItems = enriched.filter((item) => {
+            if ('错误' in item) return false;
+
+            const symbol = this.getSymbol(item) ?? '-';
+            const industryName = this.getIndustryBoardName(item);
+            const regionName = this.getRegionBoardName(item);
+
+            if (!industryName || !regionName) {
+                missingFieldMessages.push(
+                    `${symbol}(行业板块=${industryName ?? 'null'}, 地域板块=${regionName ?? 'null'})`,
+                );
+                return false;
+            }
+            return true;
+        });
+
+        if (missingFieldMessages.length > 0) {
+            throw new Error(
+                `股票信息缺少行业板块或地域板块字段，无法查询板块ID: ${missingFieldMessages.join('; ')}`,
+            );
+        }
+
+        const industryNames = Array.from(
+            new Set(
+                validItems
+                    .map(item => this.getIndustryBoardName(item))
+                    .filter((name): name is string => name !== null),
+            ),
+        );
+        const regionNames = Array.from(
+            new Set(
+                validItems
+                    .map(item => this.getRegionBoardName(item))
+                    .filter((name): name is string => name !== null),
+            ),
+        );
+
+        const [industryCodeByName, regionCodeByName] = await Promise.all([
+            this.queryTagCodesByNames(env, INDUSTRY_TAG_TYPE, industryNames),
+            this.queryTagCodesByNames(env, REGION_TAG_TYPE, regionNames),
+        ]);
+
+        const missingTagMessages: string[] = [];
+        for (const item of validItems) {
+            const symbol = this.getSymbol(item);
+            const industryName = this.getIndustryBoardName(item);
+            const regionName = this.getRegionBoardName(item);
+            if (!symbol || !industryName || !regionName) continue;
+
+            if (!industryCodeByName.get(industryName)) {
+                missingTagMessages.push(`${symbol}(行业板块=${industryName})`);
+            }
+            if (!regionCodeByName.get(regionName)) {
+                missingTagMessages.push(`${symbol}(地域板块=${regionName})`);
+            }
+        }
+        if (missingTagMessages.length > 0) {
+            throw new Error(`tags表未找到板块ID: ${missingTagMessages.join('; ')}`);
+        }
+
+        for (const item of enriched) {
+            if ('错误' in item) {
+                item['行业板块ID'] = null;
+                item['地域板块ID'] = null;
+                continue;
+            }
+
+            const industryName = this.getIndustryBoardName(item);
+            const regionName = this.getRegionBoardName(item);
+            if (!industryName || !regionName) continue;
+
+            item['行业板块ID'] = industryCodeByName.get(industryName) ?? null;
+            item['地域板块ID'] = regionCodeByName.get(regionName) ?? null;
+        }
+
+        return enriched;
+    }
+
     private static getSourceBySymbol(symbol: string): string {
         const { eastmoneyId } = getStockIdentity(symbol);
         const prefix = eastmoneyId === 1 ? 'sh' : 'sz';
@@ -78,21 +215,23 @@ export class StockInfoController {
 
             // 命中缓存：不刷新 TTL（硬过期）
             if (isValidStockInfoCachePayload(cachedWrapper)) {
+                const [enrichedData] = await this.enrichBoardIds([cachedWrapper.data], env);
                 return createResponse(200, 'success (cached)', {
                     '来源': source,
                     '更新时间': formatToChinaTime(cachedWrapper.timestamp),
-                    ...cachedWrapper.data,
+                    ...enrichedData,
                 });
             }
 
             // 未命中缓存：请求源数据
             const data = await this.fetchAndMaybeCache(symbol, cacheService);
+            const [enrichedData] = await this.enrichBoardIds([data], env);
             const now = Date.now();
 
             return createResponse(200, 'success', {
                 '来源': source,
                 '更新时间': formatToChinaTime(now),
-                ...data,
+                ...enrichedData,
             });
         } catch (err: any) {
             console.error(`Error fetching stock info for ${symbol}:`, err);
@@ -170,7 +309,8 @@ export class StockInfoController {
             const cacheService = env.KV ? new CacheService(env.KV, ctx) : null;
             const batchResults = await Promise.all(symbols.map(symbol => this.getStockInfoForBatch(symbol, cacheService)));
             const allFromCache = batchResults.every(item => item.fromCache);
-            const results = batchResults.map(item => item.data);
+            const rawResults = batchResults.map(item => item.data);
+            const results = await this.enrichBoardIds(rawResults, env);
             const now = Date.now();
 
             return createResponse(200, allFromCache ? 'success (cached)' : 'success', {
