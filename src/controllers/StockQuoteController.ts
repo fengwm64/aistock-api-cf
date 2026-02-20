@@ -1,5 +1,6 @@
 import { EmQuoteService, QuoteLevel } from '../services/EmQuoteService';
 import { EmKlineService, KLineFqt, KLinePeriod } from '../services/EmKlineService';
+import { CacheService } from '../services/CacheService';
 import { createResponse } from '../utils/response';
 import { Env } from '../index';
 import { isValidAShareSymbol } from '../utils/validator';
@@ -8,7 +9,9 @@ import {
     STOCK_QUOTE_CORE_TRADING_TTL_SECONDS,
     STOCK_QUOTE_FUNDAMENTAL_CACHE_KEY_PREFIX,
     STOCK_QUOTE_FUNDAMENTAL_TRADING_TTL_SECONDS,
+    buildTimestampedCachePayload,
     isValidStockInfoCachePayload,
+    type StockInfoCachePayload,
 } from '../constants/cache';
 import { getAShareAdaptiveCacheTtlSeconds } from '../utils/tradingTime';
 
@@ -87,14 +90,17 @@ export class StockQuoteController {
         return `${config.keyPrefix}${symbol}`;
     }
 
-    private static async readCachedQuote(level: QuoteLevel, symbol: string, env: Env): Promise<Record<string, any> | null> {
-        if (!env.KV) return null;
-
+    private static async readCachedQuote(
+        level: QuoteLevel,
+        symbol: string,
+        cacheService: CacheService | null,
+    ): Promise<Record<string, any> | null> {
+        if (!cacheService) return null;
         const cacheKey = this.buildQuoteCacheKey(level, symbol);
         if (!cacheKey) return null;
 
         try {
-            const cached = await env.KV.get(cacheKey, 'json');
+            const cached = await cacheService.get<StockInfoCachePayload>(cacheKey);
             if (!isValidStockInfoCachePayload(cached)) return null;
             return cached.data;
         } catch (err) {
@@ -107,18 +113,16 @@ export class StockQuoteController {
         level: QuoteLevel,
         symbol: string,
         quote: Record<string, any>,
-        env: Env,
+        cacheService: CacheService | null,
         ttlSeconds: number,
     ): Promise<void> {
-        if (!env.KV || Object.keys(quote).length === 0) return;
+        if (!cacheService || Object.keys(quote).length === 0) return;
 
         const cacheKey = this.buildQuoteCacheKey(level, symbol);
         if (!cacheKey) return;
 
         try {
-            await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data: quote }), {
-                expirationTtl: ttlSeconds,
-            });
+            await cacheService.put(cacheKey, buildTimestampedCachePayload(quote), ttlSeconds);
         } catch (err) {
             console.error(`Error writing stock quote cache ${cacheKey}:`, err);
         }
@@ -131,7 +135,7 @@ export class StockQuoteController {
     }
 
     /** 通用批量查询逻辑 */
-    private static async handleBatchQuotes(request: Request, level: QuoteLevel, env: Env) {
+    private static async handleBatchQuotes(request: Request, level: QuoteLevel, env: Env, ctx: ExecutionContext) {
         const url = new URL(request.url);
         const symbolsParam = url.searchParams.get('symbols');
 
@@ -156,7 +160,9 @@ export class StockQuoteController {
 
         try {
             const cacheConfig = this.getQuoteCacheConfig(level);
-            if (!cacheConfig || !env.KV) {
+            const cacheService = env.KV ? new CacheService(env.KV, ctx) : null;
+
+            if (!cacheConfig || !cacheService) {
                 const results = await EmQuoteService.getBatchQuotes(symbols, level);
 
                 return createResponse(200, 'success', {
@@ -168,7 +174,7 @@ export class StockQuoteController {
 
             const quotesBySymbol = new Map<string, Record<string, any>>();
             const cacheChecks = await Promise.all(symbols.map(async (symbol) => {
-                const cached = await this.readCachedQuote(level, symbol, env);
+                const cached = await this.readCachedQuote(level, symbol, cacheService);
                 return { symbol, cached };
             }));
 
@@ -194,7 +200,7 @@ export class StockQuoteController {
                     quotesBySymbol.set(symbol, quote);
 
                     if (cacheTtlSeconds !== null && this.isCacheableQuote(quote)) {
-                        writeTasks.push(this.writeCachedQuote(level, symbol, quote, env, cacheTtlSeconds));
+                        writeTasks.push(this.writeCachedQuote(level, symbol, quote, cacheService, cacheTtlSeconds));
                     }
                 });
 
@@ -221,17 +227,17 @@ export class StockQuoteController {
 
     /** 一级：核心行情 */
     static async getCoreQuotes(request: Request, env: Env, ctx: ExecutionContext) {
-        return this.handleBatchQuotes(request, 'core', env);
+        return this.handleBatchQuotes(request, 'core', env, ctx);
     }
 
     /** 二级：盘口/活跃度 */
     static async getActivityQuotes(request: Request, env: Env, ctx: ExecutionContext) {
-        return this.handleBatchQuotes(request, 'activity', env);
+        return this.handleBatchQuotes(request, 'activity', env, ctx);
     }
 
     /** 三级：估值/基本面 */
     static async getFundamentalQuotes(request: Request, env: Env, ctx: ExecutionContext) {
-        return this.handleBatchQuotes(request, 'fundamental', env);
+        return this.handleBatchQuotes(request, 'fundamental', env, ctx);
     }
 
     /** K 线行情 */

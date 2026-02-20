@@ -3,10 +3,13 @@ import { formatToChinaTime } from '../utils/datetime';
 import { createResponse } from '../utils/response';
 import { isValidAShareSymbol, isValidGlobalIndexSymbol } from '../utils/validator';
 import { Env } from '../index';
+import { CacheService } from '../services/CacheService';
 import { eastmoneyThrottler } from '../utils/throttlers';
 import {
     INDEX_QUOTE_CACHE_KEY_PREFIX,
+    buildTimestampedCachePayload,
     isValidStockInfoCachePayload,
+    type StockInfoCachePayload,
 } from '../constants/cache';
 import { getAShareIndexCacheTtlSeconds } from '../utils/tradingTime';
 
@@ -168,13 +171,13 @@ export class IndexQuoteController {
     private static async readCachedQuote(
         market: 'cn' | 'gb',
         symbol: string,
-        env: Env,
+        cacheService: CacheService | null,
     ): Promise<Record<string, any> | null> {
-        if (!env.KV) return null;
+        if (!cacheService) return null;
 
         const cacheKey = this.buildIndexCacheKey(market, symbol);
         try {
-            const cached = await env.KV.get(cacheKey, 'json');
+            const cached = await cacheService.get<StockInfoCachePayload>(cacheKey);
             if (!isValidStockInfoCachePayload(cached)) return null;
             return cached.data;
         } catch (err) {
@@ -187,41 +190,45 @@ export class IndexQuoteController {
         market: 'cn' | 'gb',
         symbol: string,
         quote: Record<string, any>,
-        env: Env,
+        cacheService: CacheService | null,
         ttlSeconds?: number,
     ): Promise<void> {
-        if (!env.KV || Object.keys(quote).length === 0) return;
+        if (!cacheService || Object.keys(quote).length === 0) return;
 
         const resolvedTtl = ttlSeconds ?? await getAShareIndexCacheTtlSeconds();
         const cacheKey = this.buildIndexCacheKey(market, symbol);
         try {
-            await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data: quote }), {
-                expirationTtl: resolvedTtl,
-            });
+            await cacheService.put(cacheKey, buildTimestampedCachePayload(quote), resolvedTtl);
         } catch (err) {
             console.error(`Error writing index quote cache ${cacheKey}:`, err);
         }
     }
 
-    private static async getCnQuoteWithCache(symbol: string, env: Env): Promise<CachedQuoteResult> {
-        const cached = await this.readCachedQuote('cn', symbol, env);
+    private static async getCnQuoteWithCache(
+        symbol: string,
+        cacheService: CacheService | null,
+    ): Promise<CachedQuoteResult> {
+        const cached = await this.readCachedQuote('cn', symbol, cacheService);
         if (cached) {
             return { quote: cached, fromCache: true };
         }
 
         const quote = await getIndexQuote(symbol);
-        await this.writeCachedQuote('cn', symbol, quote, env);
+        await this.writeCachedQuote('cn', symbol, quote, cacheService);
         return { quote, fromCache: false };
     }
 
-    private static async getGbQuoteWithCache(symbol: string, env: Env): Promise<CachedQuoteResult> {
-        const cached = await this.readCachedQuote('gb', symbol, env);
+    private static async getGbQuoteWithCache(
+        symbol: string,
+        cacheService: CacheService | null,
+    ): Promise<CachedQuoteResult> {
+        const cached = await this.readCachedQuote('gb', symbol, cacheService);
         if (cached) {
             return { quote: cached, fromCache: true };
         }
 
         const quote = await getGlobalIndexQuote(symbol);
-        await this.writeCachedQuote('gb', symbol, quote, env);
+        await this.writeCachedQuote('gb', symbol, quote, cacheService);
         return { quote, fromCache: false };
     }
 
@@ -249,9 +256,10 @@ export class IndexQuoteController {
         }
 
         try {
+            const cacheService = env.KV ? new CacheService(env.KV, ctx) : null;
             const quoteResults = await Promise.all(symbols.map(async (symbol) => {
                 try {
-                    return await this.getCnQuoteWithCache(symbol, env);
+                    return await this.getCnQuoteWithCache(symbol, cacheService);
                 } catch (err: any) {
                     return {
                         quote: { '指数代码': symbol, '错误': err?.message || '查询失败' },
@@ -296,9 +304,10 @@ export class IndexQuoteController {
         }
 
         try {
+            const cacheService = env.KV ? new CacheService(env.KV, ctx) : null;
             const quoteResults = await Promise.all(symbols.map(async (symbol) => {
                 try {
-                    return await this.getGbQuoteWithCache(symbol, env);
+                    return await this.getGbQuoteWithCache(symbol, cacheService);
                 } catch (err: any) {
                     return {
                         quote: { '指数代码': symbol, '错误': err?.message || '查询失败' },

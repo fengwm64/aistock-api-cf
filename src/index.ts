@@ -18,9 +18,10 @@ import {
     HOT_STOCK_INFO_WARMUP_TOPN,
     HOT_STOCKS_CACHE_KEY,
     HOT_STOCKS_CACHE_TTL_SECONDS,
-    STOCK_INFO_CACHE_KEY_PREFIX,
     STOCK_INFO_CACHE_TTL_SECONDS,
     HOT_STOCKS_SOURCE,
+    buildStockInfoCacheKey,
+    buildTimestampedCachePayload,
     type HotStocksCachePayload,
     isValidStockInfoCachePayload,
     resolveCronHotTopN,
@@ -228,7 +229,7 @@ async function warmupHotStockInfos(env: Env): Promise<void> {
                 const symbol = queue.shift();
                 if (!symbol) break;
 
-                const cacheKey = `${STOCK_INFO_CACHE_KEY_PREFIX}${symbol}`;
+                const cacheKey = buildStockInfoCacheKey(symbol);
                 try {
                     const cached = await env.KV.get(cacheKey, 'json');
                     if (isValidStockInfoCachePayload(cached)) {
@@ -242,7 +243,7 @@ async function warmupHotStockInfos(env: Env): Promise<void> {
                 try {
                     const data = await EmService.getStockInfo(symbol);
                     if (Object.keys(data).length > 0) {
-                        await env.KV.put(cacheKey, JSON.stringify({ timestamp: Date.now(), data }), {
+                        await env.KV.put(cacheKey, JSON.stringify(buildTimestampedCachePayload(data)), {
                             expirationTtl: STOCK_INFO_CACHE_TTL_SECONDS,
                         });
                     }

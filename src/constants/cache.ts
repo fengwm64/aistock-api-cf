@@ -14,6 +14,11 @@ export const STOCK_QUOTE_FUNDAMENTAL_CACHE_KEY_PREFIX = 'stock_quote:fundamental
 export const STOCK_QUOTE_CORE_TRADING_TTL_SECONDS = 30;
 export const STOCK_QUOTE_FUNDAMENTAL_TRADING_TTL_SECONDS = 60;
 
+export interface TimestampedCachePayload<TData = Record<string, any>> {
+    timestamp: number;
+    data: TData;
+}
+
 export interface HotStocksCachePayload {
     timestamp: number;
     generatedAt: string;
@@ -23,9 +28,17 @@ export interface HotStocksCachePayload {
     hotStocks: StockRankResult[];
 }
 
-export interface StockInfoCachePayload {
-    timestamp: number;
-    data: Record<string, any>;
+export type StockInfoCachePayload = TimestampedCachePayload<Record<string, any>>;
+
+export function buildStockInfoCacheKey(symbol: string): string {
+    return `${STOCK_INFO_CACHE_KEY_PREFIX}${symbol}`;
+}
+
+export function buildTimestampedCachePayload<TData>(
+    data: TData,
+    timestamp: number = Date.now(),
+): TimestampedCachePayload<TData> {
+    return { timestamp, data };
 }
 
 export function parsePositiveInteger(value: unknown): number | null {
@@ -41,10 +54,16 @@ export function resolveCronHotTopN(raw: unknown): number {
     return Math.min(MAX_CRON_HOT_TOPN, parsed);
 }
 
-export function isValidStockInfoCachePayload(value: unknown): value is StockInfoCachePayload {
+export function isValidTimestampedRecordCachePayload(
+    value: unknown,
+): value is TimestampedCachePayload<Record<string, any>> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const payload = value as Record<string, unknown>;
     if (typeof payload.timestamp !== 'number' || !Number.isFinite(payload.timestamp)) return false;
     if (!payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) return false;
     return true;
+}
+
+export function isValidStockInfoCachePayload(value: unknown): value is StockInfoCachePayload {
+    return isValidTimestampedRecordCachePayload(value);
 }

@@ -1,5 +1,12 @@
 import { EmService } from '../services/EmInfoService';
 import { CacheService } from '../services/CacheService';
+import {
+    STOCK_INFO_CACHE_TTL_SECONDS,
+    buildStockInfoCacheKey,
+    buildTimestampedCachePayload,
+    isValidStockInfoCachePayload,
+    type StockInfoCachePayload,
+} from '../constants/cache';
 import { createResponse } from '../utils/response';
 import { formatToChinaTime } from '../utils/datetime';
 import { Env } from '../index';
@@ -8,11 +15,6 @@ import { getStockIdentity } from '../utils/stock';
 
 /** 单次最多查询股票数量 */
 const MAX_SYMBOLS = 20;
-
-interface StockInfoCachePayload {
-    timestamp: number;
-    data: Record<string, any>;
-}
 
 interface BatchStockInfoResult {
     data: Record<string, any>;
@@ -23,17 +25,6 @@ interface BatchStockInfoResult {
  * 股票基本信息控制器
  */
 export class StockInfoController {
-    /** 缓存 TTL: 14天 */
-    private static readonly CACHE_TTL = 14 * 24 * 60 * 60;
-
-    private static isValidCachePayload(value: unknown): value is StockInfoCachePayload {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-        const payload = value as Record<string, unknown>;
-        if (typeof payload.timestamp !== 'number' || !Number.isFinite(payload.timestamp)) return false;
-        if (!payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) return false;
-        return true;
-    }
-
     private static getSourceBySymbol(symbol: string): string {
         const { eastmoneyId } = getStockIdentity(symbol);
         const prefix = eastmoneyId === 1 ? 'sh' : 'sz';
@@ -49,7 +40,11 @@ export class StockInfoController {
         if (cacheService && Object.keys(data).length > 0) {
             const now = Date.now();
             try {
-                cacheService.set(`stock_info:${symbol}`, { timestamp: now, data }, this.CACHE_TTL);
+                cacheService.set(
+                    buildStockInfoCacheKey(symbol),
+                    buildTimestampedCachePayload(data, now),
+                    STOCK_INFO_CACHE_TTL_SECONDS,
+                );
             } catch (err) {
                 console.error(`Error writing stock info cache for ${symbol}:`, err);
             }
@@ -66,7 +61,7 @@ export class StockInfoController {
             return createResponse(400, 'Invalid symbol - A股代码必须是6位数字');
         }
 
-        const cacheKey = `stock_info:${symbol}`;
+        const cacheKey = buildStockInfoCacheKey(symbol);
         const source = this.getSourceBySymbol(symbol);
 
         try {
@@ -82,7 +77,7 @@ export class StockInfoController {
             }
 
             // 命中缓存：不刷新 TTL（硬过期）
-            if (this.isValidCachePayload(cachedWrapper)) {
+            if (isValidStockInfoCachePayload(cachedWrapper)) {
                 return createResponse(200, 'success (cached)', {
                     '来源': source,
                     '更新时间': formatToChinaTime(cachedWrapper.timestamp),
@@ -109,12 +104,12 @@ export class StockInfoController {
         symbol: string,
         cacheService: CacheService | null,
     ): Promise<BatchStockInfoResult> {
-        const cacheKey = `stock_info:${symbol}`;
+        const cacheKey = buildStockInfoCacheKey(symbol);
 
         if (cacheService) {
             try {
                 const cachedWrapper = await cacheService.get<StockInfoCachePayload>(cacheKey);
-                if (this.isValidCachePayload(cachedWrapper)) {
+                if (isValidStockInfoCachePayload(cachedWrapper)) {
                     return {
                         data: cachedWrapper.data,
                         fromCache: true,
