@@ -277,7 +277,7 @@ export class StockQuoteController {
             fqt = parsedFqt;
         }
 
-        let limit = 1000;
+        let limit = 120;
         if (limitParam !== null && limitParam !== '') {
             const parsedLimit = this.parseIntegerParam(limitParam);
             if (parsedLimit === null || !Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > MAX_KLINE_LIMIT) {

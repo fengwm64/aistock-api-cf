@@ -19,6 +19,10 @@ export interface KLineOptions {
 /** 东方财富 K 线服务 */
 export class EmKlineService {
     private static readonly BASE_URL = 'https://push2his.eastmoney.com/api/qt/stock/kline/get';
+    private static readonly UT = 'fa5fd1943c7b386f172d6893dbfba10b';
+    private static readonly RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504, 520, 521, 522, 523, 524]);
+    private static readonly MAX_RETRIES = 3;
+    private static readonly RETRY_BASE_DELAY_MS = 300;
 
     private static readonly HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -26,6 +30,83 @@ export class EmKlineService {
         'Accept-Language': 'zh-CN,zh;q=0.9',
         'Referer': 'https://quote.eastmoney.com/',
     };
+
+    private static async sleep(ms: number): Promise<void> {
+        await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    }
+
+    private static buildKlineUrl(options: KLineOptions): URL {
+        const {
+            symbol,
+            klt = 101,
+            fqt = 1,
+            limit = 1000,
+            startDate,
+            endDate,
+        } = options;
+
+        const identity = getStockIdentity(symbol);
+        const secid = `${identity.eastmoneyId}.${symbol}`;
+
+        const url = new URL(this.BASE_URL);
+        url.searchParams.set('secid', secid);
+        url.searchParams.set('klt', String(klt));
+        url.searchParams.set('fqt', String(fqt));
+        url.searchParams.set('lmt', String(limit));
+        url.searchParams.set('end', endDate || '20500101');
+        url.searchParams.set('ut', this.UT);
+        url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
+        url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61');
+        url.searchParams.set('_', String(Date.now()));
+
+        if (startDate) {
+            url.searchParams.set('beg', startDate);
+        }
+
+        return url;
+    }
+
+    private static async fetchKlineJson(url: URL): Promise<any> {
+        let lastError: Error | null = null;
+
+        for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
+            // 限流 (东方财富)
+            await eastmoneyThrottler.throttle();
+
+            try {
+                const response = await fetch(url.toString(), {
+                    method: 'GET',
+                    headers: this.HEADERS,
+                });
+
+                if (response.ok) {
+                    return await response.json();
+                }
+
+                const status = response.status;
+                const bodyText = await response.text().catch(() => '');
+                const snippet = bodyText.replace(/\s+/g, ' ').slice(0, 180);
+                const message = snippet
+                    ? `东方财富 K 线接口请求失败: ${status} ${snippet}`
+                    : `东方财富 K 线接口请求失败: ${status}`;
+                lastError = new Error(message);
+
+                if (!this.RETRYABLE_STATUS.has(status) || attempt === this.MAX_RETRIES) {
+                    throw lastError;
+                }
+            } catch (err) {
+                const wrapped = err instanceof Error ? err : new Error(String(err));
+                lastError = wrapped;
+                if (attempt === this.MAX_RETRIES) {
+                    throw new Error(`${wrapped.message} (url=${url.toString()})`);
+                }
+            }
+
+            await this.sleep(this.RETRY_BASE_DELAY_MS * attempt);
+        }
+
+        throw new Error(`东方财富 K 线接口请求失败: 未知错误 (url=${url.toString()})`);
+    }
 
     private static toNumber(value: string): number | null {
         const num = Number(value);
@@ -52,45 +133,8 @@ export class EmKlineService {
     }
 
     static async getKLine(options: KLineOptions): Promise<Record<string, any>[]> {
-        const {
-            symbol,
-            klt = 101,
-            fqt = 1,
-            limit = 1000,
-            startDate,
-            endDate,
-        } = options;
-
-        const identity = getStockIdentity(symbol);
-        const secid = `${identity.eastmoneyId}.${symbol}`;
-
-        const url = new URL(this.BASE_URL);
-        url.searchParams.set('secid', secid);
-        url.searchParams.set('klt', String(klt));
-        url.searchParams.set('fqt', String(fqt));
-        url.searchParams.set('lmt', String(limit));
-        url.searchParams.set('end', endDate || '20500101');
-        url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
-        url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61');
-        url.searchParams.set('_', String(Date.now()));
-
-        if (startDate) {
-            url.searchParams.set('beg', startDate);
-        }
-
-        // 限流 (东方财富)
-        await eastmoneyThrottler.throttle();
-
-        const response = await fetch(url.toString(), {
-            method: 'GET',
-            headers: this.HEADERS,
-        });
-
-        if (!response.ok) {
-            throw new Error(`东方财富 K 线接口请求失败: ${response.status}`);
-        }
-
-        const json: any = await response.json();
+        const url = this.buildKlineUrl(options);
+        const json: any = await this.fetchKlineJson(url);
         const klineRows: unknown = json?.data?.klines;
 
         if (!Array.isArray(klineRows)) {
