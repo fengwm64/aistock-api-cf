@@ -3,6 +3,16 @@ main = "src/index.ts"
 compatibility_date = "2026-01-08"
 compatibility_flags = ["nodejs_compat"]
 
+# 为了打包文档等非代码文件，开启以下选项
+find_additional_modules = true
+base_dir = "."
+preserve_file_names = true
+
+[[rules]]
+type = "Text"
+globs = ["README.md"]
+fallthrough = true
+
 [vars]
 # 微信公众号 AppID
 WECHAT_APPID = "wx61330ef0702949b8"

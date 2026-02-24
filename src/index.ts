@@ -12,6 +12,7 @@ import { WechatEventController } from './controllers/WechatEventController';
 import { ScanLoginController } from './controllers/ScanLoginController';
 import { StockAnalysisController } from './controllers/StockAnalysisController';
 import { StockOcrController } from './controllers/StockOcrController';
+import { readFileSync } from 'node:fs';
 import { EmService } from './services/EmInfoService';
 import { EmStockRankService } from './services/EmStockRankService';
 import { StockAnalysisService } from './services/StockAnalysisService';
@@ -73,85 +74,6 @@ type SymbolQueryRouteHandler = (symbol: string, request: Request, env: Env, ctx:
 type TagQueryRouteHandler = (tagCode: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 /** 路径中携带 settingType，且带查询参数的路由 */
 type SettingQueryRouteHandler = (settingType: string, request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
-
-interface ReadmeDocChapter {
-    id: string;
-    title: string;
-    content: string[];
-    items?: string[];
-}
-
-const README_DOC_CHAPTERS: ReadmeDocChapter[] = [
-    {
-        id: 'overview',
-        title: '项目简介',
-        content: [
-            'AIStock API 基于 Cloudflare Workers，提供 A 股列表、股票信息、行情、指数、新闻、盈利预测、板块龙头、个股 AI 评价和 OCR 等能力。',
-        ],
-    },
-    {
-        id: 'architecture',
-        title: '架构',
-        content: [
-            'README 的架构章节说明了分层设计：路由层负责 URL 匹配，控制器层负责参数校验和响应组装，服务层负责外部数据源请求，工具层提供通用能力。',
-            '技术栈包含 Cloudflare Workers、TypeScript、D1（含读复制）、Workers KV 与 cheerio。',
-        ],
-    },
-    {
-        id: 'api',
-        title: 'API 接口章节',
-        content: [
-            'README 将 API 按能力划分为以下章节，可用于快速定位接口说明与请求示例。',
-        ],
-        items: [
-            '1. A股列表查询',
-            '2. 股票基本信息',
-            '3. 实时行情（核心行情 / 盘口活跃度 / K线）',
-            '4. 股票基本面',
-            '5. 盈利预测（列表 / 搜索 / 单股）',
-            '6. 指数实时行情（含全球指数）',
-            '7. 热门人气榜（含板块龙头）',
-            '8. 新闻头条与个股新闻（含 AI 评价与历史记录）',
-            '9. 新闻详情',
-            '10. 微信网页授权登录（含扫码登录与用户设置）',
-        ],
-    },
-    {
-        id: 'cron',
-        title: '定时任务与缓存',
-        content: [
-            'README 说明了热榜缓存刷新、热门股信息预热和自选股 AI 分析刷新三类 Cron 任务，并解释了 KV 缓存与接口请求之间的协作关系。',
-        ],
-    },
-    {
-        id: 'errors',
-        title: '错误响应',
-        content: [
-            '错误响应统一为 JSON 结构：code、message、data，便于前后端一致处理。',
-        ],
-    },
-    {
-        id: 'changelog',
-        title: '更新日志',
-        content: [
-            'README 按日期记录了近期变更，包括 2026-02-19、2026-02-17、2026-02-12、2026-02-11、2026-02-10、2026-02-09 等版本更新。',
-        ],
-    },
-    {
-        id: 'database',
-        title: '数据库配置',
-        content: [
-            'README 给出了 D1 初始化、建表与索引脚本执行方式，以及相关 Cloudflare 配置建议。',
-        ],
-    },
-    {
-        id: 'development',
-        title: '开发',
-        content: [
-            'README 提供了安装依赖、本地开发、类型检查与部署的命令示例。',
-        ],
-    },
-];
 
 const idRoutes: [string, IdRouteHandler][] = [
     ['/api/news/', NewsController.getNewsDetail.bind(NewsController)],
@@ -226,29 +148,17 @@ function escapeHtml(text: string): string {
         .replace(/'/g, '&#39;');
 }
 
+function readReadmeContent(): string {
+    try {
+        return readFileSync('/bundle/README.md', 'utf8');
+    } catch (err) {
+        console.error('[Doc] failed to read /bundle/README.md:', err);
+        return 'README.md not found in worker bundle.';
+    }
+}
+
 function createDocResponse(): Response {
-    const navHtml = README_DOC_CHAPTERS
-        .map(chapter => `<a href="#${escapeHtml(chapter.id)}">${escapeHtml(chapter.title)}</a>`)
-        .join('');
-
-    const sectionsHtml = README_DOC_CHAPTERS
-        .map((chapter) => {
-            const contentHtml = chapter.content
-                .map(paragraph => `<p>${escapeHtml(paragraph)}</p>`)
-                .join('');
-            const itemHtml = chapter.items && chapter.items.length > 0
-                ? `<ul>${chapter.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
-                : '';
-
-            return `
-                <section id="${escapeHtml(chapter.id)}">
-                    <h2>${escapeHtml(chapter.title)}</h2>
-                    ${contentHtml}
-                    ${itemHtml}
-                </section>
-            `;
-        })
-        .join('');
+    const readmeHtml = escapeHtml(readReadmeContent());
 
     const html = `<!doctype html>
 <html lang="zh-CN">
@@ -290,44 +200,19 @@ function createDocResponse(): Response {
             margin: 0 0 16px;
             color: var(--muted);
         }
-        nav {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin: 0 0 22px;
-        }
-        nav a {
-            text-decoration: none;
-            color: var(--accent);
-            padding: 6px 12px;
-            border: 1px solid var(--line);
-            border-radius: 999px;
-            background: #fffef7;
-            font-size: 14px;
-        }
-        main {
-            display: grid;
-            gap: 14px;
-        }
-        section {
+        .doc {
             border: 1px solid var(--line);
             border-radius: 16px;
             background: var(--card);
-            padding: 18px 16px;
+            padding: 16px;
             box-shadow: 0 8px 20px rgba(22, 28, 45, 0.06);
+            overflow-x: auto;
         }
-        h2 {
-            margin: 0 0 8px;
-            font-size: 20px;
-        }
-        p {
-            margin: 0 0 8px;
+        pre {
+            margin: 0;
             color: var(--muted);
-        }
-        ul {
-            margin: 4px 0 0 20px;
-            padding: 0;
-            color: var(--muted);
+            font: 14px/1.55 Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            white-space: pre;
         }
         footer {
             margin-top: 24px;
@@ -338,10 +223,9 @@ function createDocResponse(): Response {
 </head>
 <body>
     <div class="container">
-        <h1>AIStock API 文档</h1>
-        <p class="lead">此页面展示 README 主要章节，完整内容请查看仓库根目录 README.md。</p>
-        <nav>${navHtml}</nav>
-        <main>${sectionsHtml}</main>
+        <h1>README 原文</h1>
+        <p class="lead">以下内容为仓库根目录 README.md 的完整原文。</p>
+        <div class="doc"><pre>${readmeHtml}</pre></div>
         <footer>健康检查：<code>/</code> | 文档：<code>/doc</code></footer>
     </div>
 </body>
