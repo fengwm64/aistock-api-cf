@@ -24,15 +24,37 @@ export class EmKlineService {
     private static readonly MAX_RETRIES = 3;
     private static readonly RETRY_BASE_DELAY_MS = 300;
 
-    private static readonly HEADERS = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Referer': 'https://quote.eastmoney.com/',
-    };
+    private static readonly USER_AGENT =
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
     private static async sleep(ms: number): Promise<void> {
         await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    }
+
+    private static buildReferer(symbol: string): string {
+        const identity = getStockIdentity(symbol);
+        if (identity.market === 'sh') return `https://quote.eastmoney.com/sh${symbol}.html`;
+        if (identity.market === 'sz' || identity.market === 'bj') return `https://quote.eastmoney.com/sz${symbol}.html`;
+        return 'https://quote.eastmoney.com/';
+    }
+
+    private static buildBrowserLikeHeaders(symbol: string): Record<string, string> {
+        return {
+            'User-Agent': this.USER_AGENT,
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'DNT': '1',
+            'Origin': 'https://quote.eastmoney.com',
+            'Referer': this.buildReferer(symbol),
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'sec-ch-ua': '"Not A(Brand";v="99", "Chromium";v="121", "Google Chrome";v="121"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+        };
     }
 
     private static buildKlineUrl(options: KLineOptions): URL {
@@ -66,8 +88,9 @@ export class EmKlineService {
         return url;
     }
 
-    private static async fetchKlineJson(url: URL): Promise<any> {
+    private static async fetchKlineJson(url: URL, symbol: string): Promise<any> {
         let lastError: Error | null = null;
+        const headers = this.buildBrowserLikeHeaders(symbol);
 
         for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
             // 限流 (东方财富)
@@ -76,7 +99,7 @@ export class EmKlineService {
             try {
                 const response = await fetch(url.toString(), {
                     method: 'GET',
-                    headers: this.HEADERS,
+                    headers,
                 });
 
                 if (response.ok) {
@@ -134,7 +157,7 @@ export class EmKlineService {
 
     static async getKLine(options: KLineOptions): Promise<Record<string, any>[]> {
         const url = this.buildKlineUrl(options);
-        const json: any = await this.fetchKlineJson(url);
+        const json: any = await this.fetchKlineJson(url, options.symbol);
         const klineRows: unknown = json?.data?.klines;
 
         if (!Array.isArray(klineRows)) {
