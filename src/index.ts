@@ -58,6 +58,7 @@ export interface Env {
     OCR_MODEL: string;
     CRON_HOT_TOPN?: string;
     CRON_ANALYSIS_CONCURRENCY?: string;
+    CRON_ANALYSIS_BATCH_SIZE?: string;
 }
 
 /** 带数字 ID 参数的路由 */
@@ -138,6 +139,10 @@ const FAVORITES_ANALYSIS_REFRESH_CRON_EXPRESSIONS = new Set([
 ]);
 const DEFAULT_ANALYSIS_REFRESH_CONCURRENCY = 2;
 const MAX_ANALYSIS_REFRESH_CONCURRENCY = 6;
+const DEFAULT_ANALYSIS_REFRESH_BATCH_SIZE = 5;
+const MAX_ANALYSIS_REFRESH_BATCH_SIZE = 30;
+const FAVORITES_ANALYSIS_CURSOR_KEY = 'cron:favorites_analysis:cursor:v1';
+const TOO_MANY_SUBREQUESTS_MESSAGE = 'Too many subrequests';
 
 function escapeHtml(text: string): string {
     return text
@@ -244,6 +249,72 @@ function resolveAnalysisRefreshConcurrency(raw: string | undefined): number {
     const parsed = Number(String(raw ?? '').trim());
     if (!Number.isInteger(parsed) || parsed <= 0) return DEFAULT_ANALYSIS_REFRESH_CONCURRENCY;
     return Math.min(parsed, MAX_ANALYSIS_REFRESH_CONCURRENCY);
+}
+
+function resolveAnalysisRefreshBatchSize(raw: string | undefined): number {
+    const parsed = Number(String(raw ?? '').trim());
+    if (!Number.isInteger(parsed) || parsed <= 0) return DEFAULT_ANALYSIS_REFRESH_BATCH_SIZE;
+    return Math.min(parsed, MAX_ANALYSIS_REFRESH_BATCH_SIZE);
+}
+
+interface FavoritesAnalysisBatchSelection {
+    totalSymbols: number;
+    batchSize: number;
+    selectedSymbols: string[];
+    startCursor: number;
+    nextCursor: number;
+}
+
+async function selectFavoritesAnalysisBatch(
+    symbols: string[],
+    env: Env,
+): Promise<FavoritesAnalysisBatchSelection> {
+    const totalSymbols = symbols.length;
+    const batchSize = Math.min(resolveAnalysisRefreshBatchSize(env.CRON_ANALYSIS_BATCH_SIZE), totalSymbols);
+    if (batchSize <= 0) {
+        return {
+            totalSymbols,
+            batchSize: 0,
+            selectedSymbols: [],
+            startCursor: 0,
+            nextCursor: 0,
+        };
+    }
+
+    let startCursor = 0;
+    if (env.KV) {
+        try {
+            const stored = await env.KV.get(FAVORITES_ANALYSIS_CURSOR_KEY);
+            const parsed = Number(String(stored ?? '').trim());
+            if (Number.isInteger(parsed) && parsed >= 0) {
+                startCursor = parsed % totalSymbols;
+            }
+        } catch (err) {
+            console.warn('[Cron][FavoritesAnalysis] failed to read cursor from KV:', err);
+        }
+    }
+
+    const selectedSymbols: string[] = [];
+    for (let i = 0; i < batchSize; i++) {
+        selectedSymbols.push(symbols[(startCursor + i) % totalSymbols]);
+    }
+    const nextCursor = (startCursor + selectedSymbols.length) % totalSymbols;
+
+    if (env.KV) {
+        try {
+            await env.KV.put(FAVORITES_ANALYSIS_CURSOR_KEY, String(nextCursor));
+        } catch (err) {
+            console.warn('[Cron][FavoritesAnalysis] failed to persist cursor to KV:', err);
+        }
+    }
+
+    return {
+        totalSymbols,
+        batchSize,
+        selectedSymbols,
+        startCursor,
+        nextCursor,
+    };
 }
 
 async function refreshHotStocksCache(env: Env): Promise<void> {
@@ -400,17 +471,25 @@ async function refreshFavoritesStockAnalysis(env: Env): Promise<void> {
         return;
     }
 
+    const batch = await selectFavoritesAnalysisBatch(symbols, env);
+    if (batch.selectedSymbols.length === 0) {
+        console.log('[Cron][FavoritesAnalysis] skip: selected batch is empty');
+        return;
+    }
+
     const concurrency = resolveAnalysisRefreshConcurrency(env.CRON_ANALYSIS_CONCURRENCY);
-    const queue = symbols.slice();
+    const queue = batch.selectedSymbols.slice();
     let success = 0;
     let failed = 0;
+    let budgetExceeded = false;
 
     console.log(
-        `[Cron][FavoritesAnalysis] start: symbols=${symbols.length}, concurrency=${concurrency}`,
+        `[Cron][FavoritesAnalysis] start: total=${batch.totalSymbols}, selected=${batch.selectedSymbols.length}, batchSize=${batch.batchSize}, cursor=${batch.startCursor}->${batch.nextCursor}, concurrency=${concurrency}`,
     );
 
     const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
         while (queue.length > 0) {
+            if (budgetExceeded) break;
             const symbol = queue.shift();
             if (!symbol) break;
 
@@ -420,6 +499,14 @@ async function refreshFavoritesStockAnalysis(env: Env): Promise<void> {
             } catch (err) {
                 failed++;
                 console.error(`[Cron][FavoritesAnalysis] failed for ${symbol}:`, err);
+
+                const message = err instanceof Error ? err.message : String(err);
+                if (message.includes(TOO_MANY_SUBREQUESTS_MESSAGE)) {
+                    budgetExceeded = true;
+                    queue.length = 0;
+                    console.error(`[Cron][FavoritesAnalysis] subrequest limit reached at ${symbol}, abort remaining in this run`);
+                    break;
+                }
             }
         }
     });
@@ -427,7 +514,7 @@ async function refreshFavoritesStockAnalysis(env: Env): Promise<void> {
     await Promise.all(workers);
 
     console.log(
-        `[Cron][FavoritesAnalysis] done: total=${symbols.length}, success=${success}, failed=${failed}`,
+        `[Cron][FavoritesAnalysis] done: selected=${batch.selectedSymbols.length}, success=${success}, failed=${failed}, abortedBySubrequestLimit=${budgetExceeded}`,
     );
 }
 
