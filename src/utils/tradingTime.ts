@@ -12,7 +12,7 @@
 
 const TIMOR_HOLIDAY_API_BASE = 'https://timor.tech/api/holiday/info/';
 const HOLIDAY_REQUEST_TIMEOUT_MS = 3500;
-const INDEX_QUOTE_TRADING_TTL_BASE_SECONDS = 30;
+const INDEX_QUOTE_TRADING_TTL_BASE_SECONDS = 60;
 const INDEX_QUOTE_TRADING_TTL_JITTER_SECONDS = 5;
 const TRADING_OPEN_HOUR = 9;
 const TRADING_OPEN_MINUTE = 15;
@@ -111,7 +111,7 @@ function normalizePositiveTtlSeconds(value: number): number {
     if (!Number.isFinite(value)) {
         throw new Error('Invalid ttl seconds');
     }
-    return Math.max(1, Math.floor(value));
+    return Math.max(60, Math.floor(value));
 }
 
 function addCalendarDays(
@@ -197,7 +197,7 @@ async function getSecondsUntilNextTradingOpen(date: Date, fetcher: typeof fetch)
             continue;
         }
 
-        return Math.max(1, Math.ceil((openMs - nowMs) / 1000));
+        return Math.max(60, Math.ceil((openMs - nowMs) / 1000));
     }
 
     console.warn('[TradingTime] failed to locate next trading open day, fallback to 12h');
@@ -265,7 +265,7 @@ export async function getAShareAdaptiveCacheTtlSeconds(
 
 /**
  * 计算指数缓存 TTL：
- * - 交易时段：30s + 随机扰动（0~5s）
+ * - 交易时段：60s + 随机扰动（0~5s）
  * - 15:00 最后一轮刷新：拉长到下一交易日 09:15
  * - 非交易时段：拉长到下一交易日 09:15
  */

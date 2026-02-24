@@ -15,7 +15,11 @@ export class CacheService {
 
     /** 设置缓存数据（同步等待写入完成） */
     async put<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
-        await this.kv.put(key, JSON.stringify(value), { expirationTtl: ttlSeconds });
+        if (!Number.isFinite(ttlSeconds)) {
+            throw new Error(`Invalid TTL for key ${key}: ${ttlSeconds}`);
+        }
+        const normalizedTtlSeconds = Math.max(60, Math.floor(ttlSeconds));
+        await this.kv.put(key, JSON.stringify(value), { expirationTtl: normalizedTtlSeconds });
     }
 
     /** 设置缓存数据（后台异步写入，不阻塞响应） */
