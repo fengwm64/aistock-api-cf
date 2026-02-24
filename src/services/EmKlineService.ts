@@ -18,7 +18,7 @@ export interface KLineOptions {
 
 /** 东方财富 K 线服务 */
 export class EmKlineService {
-    private static readonly BASE_URL = 'https://push2his.eastmoney.com/api/qt/stock/kline/get';
+    private static readonly BASE_URL = 'https://62.push2his.eastmoney.com/api/qt/stock/kline/get';
     private static readonly UT = 'fa5fd1943c7b386f172d6893dbfba10b';
     private static readonly RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504, 520, 521, 522, 523, 524]);
     private static readonly MAX_RETRIES = 3;
