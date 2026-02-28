@@ -23,7 +23,7 @@ export class EmService {
     };
 
     /** API 基础 URL */
-    private static readonly BASE_URL = 'https://push2.eastmoney.com/api/qt/stock/get';
+    private static readonly BASE_URL = 'https://86.push2.eastmoney.com/api/qt/stock/get';
 
     /**
      * 获取股票基本信息

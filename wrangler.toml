@@ -26,11 +26,6 @@ OPENAI_API_BASE_URL = "https://gen.pollinations.ai/v1/chat/completions"
 EVA_MODEL = "openai-large"
 OCR_MODEL = "openai"
 
-# 定时任务相关设置
-CRON_HOT_TOPN = "8"
-CRON_ANALYSIS_CONCURRENCY = "3"
-CRON_ANALYSIS_BATCH_SIZE = "8"
-
 # 敏感信息请通过 wrangler secret put 设置:
 #   wrangler secret put WECHAT_SECRET
 #   wrangler secret put JWT_SECRET
@@ -46,15 +41,6 @@ id = "2e22a1ea7d91471e8476969f8e89ccab"
 binding = "DB"
 database_name = "aistock"
 database_id = "f6efa1f1-4414-491c-a5d6-809fb1adfb8d" # 运行 wrangler d1 create aistock 后填入
-
-[triggers]
-crons = [
-  "*/30 * * * *",
-  "*/5 * * * *",
-  "30 1 * * 1-5", # UTC -> 北京时间 09:30
-  "0 5 * * 1-5",  # UTC -> 北京时间 13:00
-  "0 7 * * 1-5"   # UTC -> 北京时间 15:00
-]
 
 [[routes]]
 pattern = "extapi.aistocklink.cn"

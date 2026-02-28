@@ -7,7 +7,6 @@ import {
     HOT_STOCKS_CACHE_TTL_SECONDS,
     HOT_STOCKS_SOURCE,
     type HotStocksCachePayload,
-    resolveCronHotTopN,
 } from '../constants/cache';
 
 /**
@@ -42,8 +41,7 @@ export class StockRankController {
     private static async writeHotStocksCache(env: Env, rankList: Awaited<ReturnType<typeof EmStockRankService.getStockHotRank>>): Promise<void> {
         if (!env.KV) return;
 
-        const topN = resolveCronHotTopN(env.CRON_HOT_TOPN);
-        const hotStocks = rankList.slice(0, topN);
+        const hotStocks = rankList.slice(0, this.MAX_COUNT);
         const payload: HotStocksCachePayload = {
             timestamp: Date.now(),
             generatedAt: new Date().toISOString(),

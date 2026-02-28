@@ -1789,8 +1789,6 @@ GET /api/auth/wechat/login?redirect=/dashboard
 | `OPENAI_API_KEY` | 大模型接口密钥 |
 | `EVA_MODEL` | 个股评价使用的模型名 |
 | `OCR_MODEL` | 自选股图片 OCR 使用的模型名 |
-| `CRON_HOT_TOPN` | 人气榜缓存写入数量上限（默认 8，最大 100） |
-| `CRON_ANALYSIS_CONCURRENCY` | 自选股评价刷新任务并发度（默认 2，最大 6） |
 
 设置方式：
 
@@ -1805,76 +1803,15 @@ wrangler secret put OPENAI_API_KEY
 
 ---
 
-## 定时任务（Cron）与缓存协作
+## 缓存策略（无定时任务）
 
-当前项目已启用三类 Cron 任务，并通过 KV 预热与 D1 刷新协作：
-
-```toml
-[triggers]
-crons = [
-  "*/30 * * * *",
-  "*/5 * * * *",
-  "30 1 * * 1-5", # UTC -> 北京时间 09:30
-  "0 5 * * 1-5",  # UTC -> 北京时间 13:00
-  "0 7 * * 1-5"   # UTC -> 北京时间 15:00
-]
-```
-
-### 1. 缓存 Key 与 TTL
+当前项目不使用 Cron 任务。缓存全部由接口请求触发，采用「读缓存优先 + 未命中回源并回填」。
 
 | Key | 内容 | TTL | 说明 |
 |-----|------|-----|------|
-| `hot_stocks:v1` | 热门股票列表（含 symbol 与排名） | 30 分钟 | 由 Cron 任务 A 定期刷新，`stockrank` 接口可读 |
+| `hot_stocks:v1` | 热门股票列表（含 symbol 与排名） | 30 分钟 | 由 `/api/cn/market/stockrank` 请求触发回填 |
 | `stock_info:{symbol}` | 单只股票基础信息（`{ timestamp, data }`） | 14 天 | 硬过期，不滑动续期 |
-| `index_quote:cn:{symbol}` / `index_quote:gb:{symbol}` | 指数实时行情缓存（`{ timestamp, data }`） | 动态 TTL | 交易时段短 TTL；收盘后/非交易时段延长到下一交易日 09:15 |
-
-### 2. 任务 A（`*/30 * * * *`）
-
-每 30 分钟执行一次：
-1. 拉取东方财富热门人气榜。
-2. 按 `CRON_HOT_TOPN` 截断（默认 8）。
-3. 写入 `hot_stocks:v1`（TTL 30 分钟）。
-
-### 3. 任务 B（`*/5 * * * *`）
-
-每 5 分钟执行一次：
-1. 读取 `hot_stocks:v1`。
-2. 如果 key 存在，取前 8 个 symbol；如果不存在，则热门榜部分为空。
-3. 读取 `user_stocks` 全量自选股，按 symbol 去重。
-4. 合并“热门榜 symbol + 自选股 symbol”，逐个检查 `stock_info:{symbol}` 是否存在且结构合法（`{ timestamp, data }`）。
-5. 对缺失或坏缓存项回源 `EmService.getStockInfo(symbol)` 并写入 14 天 TTL。
-
-### 4. 与接口请求的协作关系
-
-1. `/api/cn/market/stockrank`
-   先读 `hot_stocks:v1`；未命中或数量不足时实时回源并异步回填。  
-   这使得「Cron 预热」和「在线请求回填」形成互补。
-
-2. `/api/cn/stock/infos`
-   读 `stock_info:{symbol}` 优先；缺失/坏缓存时回源并回填。  
-   因为是硬 TTL，访问命中不会刷新生存时间。
-
-3. `/api/cn/index/quotes` 与 `/api/gb/index/quotes`
-   读 `index_quote:*` 优先；缺失时回源并回填。  
-   指数缓存由接口请求按读穿策略更新（不再由 `*/5` 任务定时预热）。
-
-### 5. 任务 C（交易日 `09:30` / `13:00` / `15:00`）
-
-在交易日的三个关键时间点（北京时间）执行一次“全量自选股评价刷新”：
-1. 先判断当前是否处于 A 股交易时段（含节假日判断）；若不是则直接跳过。
-2. 从 `user_stocks` 读取全体用户自选股，并按 symbol 去重。
-3. 对每个 symbol 调用 `StockAnalysisService.createStockAnalysis(symbol, env)`，将新评价写入 D1 `stock_analysis`。
-4. 并发度由 `CRON_ANALYSIS_CONCURRENCY` 控制（默认 2，最大 6）。
-
-### 6. 扩展预留
-
-当前 Cron 体系已覆盖：
-- 热门榜缓存刷新
-- 热门股信息补齐
-- 指数交易时段预热
-- 全体用户自选股的定点评价刷新
-
-后续可继续扩展更多预热项（如行业板块指数）。
+| `index_quote:cn:{symbol}` / `index_quote:gb:{symbol}` | 指数实时行情缓存（`{ timestamp, data }`） | 动态 TTL | 交易时段短 TTL；非交易时段延长到下一交易日 09:15 |
 
 ---
 
@@ -1900,6 +1837,11 @@ crons = [
 ---
 
 ## 更新日志
+
+### 2026年2月28日
+- 移除 Worker `scheduled` 入口与全部 Cron 任务逻辑。
+- 删除 `wrangler.toml` 中 `[triggers].crons` 配置与相关 Cron 环境变量。
+- 缓存策略统一为“请求触发回填”，仅保留 KV 短缓存与按需回源。
 
 ### 2026年2月19日
 - **规范调整**:
