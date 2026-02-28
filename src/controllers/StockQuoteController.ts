@@ -5,6 +5,8 @@ import { createResponse } from '../utils/response';
 import { Env } from '../index';
 import { isValidAShareSymbol } from '../utils/validator';
 import {
+    STOCK_QUOTE_ACTIVITY_CACHE_KEY_PREFIX,
+    STOCK_QUOTE_ACTIVITY_TRADING_TTL_SECONDS,
     STOCK_QUOTE_CORE_CACHE_KEY_PREFIX,
     STOCK_QUOTE_CORE_TRADING_TTL_SECONDS,
     STOCK_QUOTE_FUNDAMENTAL_CACHE_KEY_PREFIX,
@@ -30,8 +32,8 @@ interface QuoteCacheConfig {
 /**
  * 股票行情控制器
  * 缓存策略：
- * - core/fundamental：读 KV 优先，未命中回源并回填
- * - activity/kline：实时回源
+ * - core/activity/fundamental：读 KV 优先，未命中回源并回填
+ * - kline：实时回源
  * 支持接口:
  *   /api/cn/stock/quotes/core?symbols=...         核心行情
  *   /api/cn/stock/quotes/activity?symbols=...      盘口/活跃度
@@ -73,6 +75,12 @@ export class StockQuoteController {
             return {
                 keyPrefix: STOCK_QUOTE_CORE_CACHE_KEY_PREFIX,
                 tradingTtlSeconds: STOCK_QUOTE_CORE_TRADING_TTL_SECONDS,
+            };
+        }
+        if (level === 'activity') {
+            return {
+                keyPrefix: STOCK_QUOTE_ACTIVITY_CACHE_KEY_PREFIX,
+                tradingTtlSeconds: STOCK_QUOTE_ACTIVITY_TRADING_TTL_SECONDS,
             };
         }
         if (level === 'fundamental') {

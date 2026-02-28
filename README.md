@@ -397,9 +397,11 @@ GET /api/cn/stock/infos?symbols=000001,600519
   - `kline`: `symbol` — 单只股票代码（6位数字）
 - **缓存策略**:
   - `core`: Workers KV（key: `stock_quote:core:{symbol}`），读缓存优先，未命中回源并回填
-    - 交易时段 TTL：`30s`
+    - 交易时段 TTL：`60s`
     - 非交易时段（含 15:00 收盘点）TTL：到下一交易日 `09:15`
-  - `activity`: 无缓存（实时数据）
+  - `activity`: Workers KV（key: `stock_quote:activity:{symbol}`），读缓存优先，未命中回源并回填
+    - 交易时段 TTL：`60s`
+    - 非交易时段（含 15:00 收盘点）TTL：到下一交易日 `09:15`
   - `kline`: 无缓存（实时数据）
 - **单位说明**: 成交量/内盘/外盘原始单位为手，已统一转换为**股**（1手=100股）；更新时间已从 Unix 时间戳转换为可读格式
 
